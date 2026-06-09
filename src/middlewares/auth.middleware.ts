@@ -6,19 +6,42 @@ interface JwtPayload {
   role: string;
 }
 
-export const authenticate = (req: Request, res: Response, next: NextFunction) => {
-  const token = req.header('Authorization')?.replace('Bearer ', '');
+export const authenticate = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+) => {
+  const authHeader = req.headers.authorization;
 
-  if (!token) {
-    return res.status(401).json({ success: false, message: 'Access denied. No token provided.' });
+  if (!authHeader) {
+    return res.status(401).json({
+      success: false,
+      message: 'Access denied. No token provided.'
+    });
   }
 
+  if (!authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      success: false,
+      message: 'Invalid authorization format.'
+    });
+  }
+
+  const token = authHeader.split(' ')[1];
+
   try {
-    const decoded = jwt.verify(process.env.JWT_SECRET || 'secret', token) as JwtPayload;
-    // Attach user payload to the request object
+    const decoded = jwt.verify(
+      token,
+      process.env.JWT_SECRET || 'secret'
+    ) as JwtPayload;
+
     (req as any).user = decoded;
+
     next();
   } catch (error) {
-    res.status(401).json({ success: false, message: 'Invalid token.' });
+    return res.status(401).json({
+      success: false,
+      message: 'Invalid token.'
+    });
   }
 };
