@@ -1,16 +1,24 @@
 import { Router } from 'express';
 import { getDoctorProfile, createDoctorProfile, updateDoctorProfile } from '../controllers/profile.controller';
+import { getDoctors, getDoctorById } from '../controllers/discovery.controller';
 import { authenticate } from '../middlewares/auth.middleware';
 import { authorizeRole } from '../middlewares/role.middleware';
 
 const router = Router();
 
-// Apply Authentication and Role Guard ('DOCTOR') to all routes in this file
-router.use(authenticate, authorizeRole('DOCTOR'));
+// ==========================================
+// DOCTOR ONBOARDING ROUTES (Strictly DOCTOR)
+// ==========================================
+const doctorOnly = [authenticate, authorizeRole('DOCTOR')];
 
-// Profile Routes
-router.post('/profile', createDoctorProfile);
-router.get('/profile', getDoctorProfile);
-router.patch('/profile', updateDoctorProfile);
+router.post('/profile', doctorOnly, createDoctorProfile);
+router.get('/profile', doctorOnly, getDoctorProfile);
+router.patch('/profile', doctorOnly, updateDoctorProfile);
+
+// ==========================================
+// DOCTOR DISCOVERY ROUTES (Open to any logged-in user)
+// ==========================================
+router.get('/', authenticate, getDoctors);
+router.get('/:id', authenticate, getDoctorById);
 
 export default router;
