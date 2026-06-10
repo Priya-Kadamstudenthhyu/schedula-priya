@@ -6,10 +6,12 @@ export const errorHandler = (err: any, req: Request, res: Response, next: NextFu
 
   // Handle Zod validation errors
   if (err instanceof ZodError) {
+    const errorObj = err as any;
+    const issues = errorObj.errors || errorObj.issues || [];
     return res.status(400).json({
       success: false,
       message: 'Validation failed',
-      errors: err.errors.map(e => ({ path: e.path.join('.'), message: e.message }))
+      errors: issues.map((e: any) => ({ path: e.path.join('.'), message: e.message }))
     });
   }
 

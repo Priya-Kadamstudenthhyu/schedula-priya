@@ -1,11 +1,24 @@
 import { Router } from 'express';
-import { getDoctorProfile } from '../controllers/profile.controller';
+import { getDoctorProfile, createDoctorProfile, updateDoctorProfile } from '../controllers/profile.controller';
+import { getDoctors, getDoctorById } from '../controllers/discovery.controller';
 import { authenticate } from '../middlewares/auth.middleware';
 import { authorizeRole } from '../middlewares/role.middleware';
 
 const router = Router();
 
-// Route protected by Authentication AND Role Guard for 'DOCTOR'
-router.get('/profile', authenticate, authorizeRole('DOCTOR'), getDoctorProfile);
+// ==========================================
+// DOCTOR ONBOARDING ROUTES (Strictly DOCTOR)
+// ==========================================
+const doctorOnly = [authenticate, authorizeRole('DOCTOR')];
+
+router.post('/profile', doctorOnly, createDoctorProfile);
+router.get('/profile', doctorOnly, getDoctorProfile);
+router.patch('/profile', doctorOnly, updateDoctorProfile);
+
+// ==========================================
+// DOCTOR DISCOVERY ROUTES (Open to any logged-in user)
+// ==========================================
+router.get('/', authenticate, getDoctors);
+router.get('/:id', authenticate, getDoctorById);
 
 export default router;

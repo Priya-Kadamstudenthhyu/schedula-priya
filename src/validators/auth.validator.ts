@@ -5,7 +5,7 @@ export const signupSchema = z.object({
   email: z.string().email("Invalid email format"),
   password: z.string().min(6, "Password must be at least 6 characters long"),
   role: z.enum(['DOCTOR', 'PATIENT'], {
-    errorMap: () => ({ message: "Role must be either DOCTOR or PATIENT" })
+    message: "Role must be either DOCTOR or PATIENT"
   })
 });
 
