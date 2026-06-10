@@ -29,6 +29,6 @@ app.use('/api/patient', patientRoutes);
 app.use(errorHandler);
 
 // Start Server
-app.listen(PORT, () => {
-  console.log(`Server is running beautifully on http://localhost:${PORT}`);
+app.listen(PORT as number, '0.0.0.0', () => {
+  console.log(`Server is running beautifully on http://0.0.0.0:${PORT}`);
 });
