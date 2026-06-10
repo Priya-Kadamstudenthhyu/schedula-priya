@@ -78,7 +78,7 @@ export const getDoctorById = async (req: Request, res: Response, next: NextFunct
     const { id } = req.params;
 
     const doctor = await prisma.doctorProfile.findUnique({
-      where: { id }
+      where: { id: String(id) }
     });
 
     if (!doctor) {
