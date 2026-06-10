@@ -15,9 +15,25 @@ const PORT = process.env.PORT || 3000;
 app.use(express.json());
 app.use(cors());
 
+// Root Welcome Route
+app.get('/', (req, res) => {
+  res.status(200).json({
+    message: 'Welcome to Schedula API! 🏥',
+    status: 'running',
+    version: '1.0.0',
+    description: 'A backend API for doctor-patient appointment scheduling',
+    endpoints: {
+      auth: '/api/auth/signup, /api/auth/login',
+      doctor: '/api/doctor, /api/doctor/:id, /api/doctor/profile',
+      patient: '/api/patient/profile'
+    },
+    docs: 'See README.md for full API documentation'
+  });
+});
+
 // Health Check Route
 app.get('/api/health', (req, res) => {
-  res.status(200).json({ message: 'API is running optimally.' });
+  res.status(200).json({ status: 'ok', message: 'API is running optimally.' });
 });
 
 // Routes
