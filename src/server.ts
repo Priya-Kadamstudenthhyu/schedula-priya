@@ -4,6 +4,7 @@ import cors from 'cors';
 import authRoutes from './routes/auth.routes';
 import doctorRoutes from './routes/doctor.routes';
 import patientRoutes from './routes/patient.routes';
+import availabilityRoutes from './routes/availability.routes';
 import { errorHandler } from './middlewares/error.middleware';
 
 dotenv.config();
@@ -40,6 +41,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/doctor', doctorRoutes);
 app.use('/api/patient', patientRoutes);
+app.use('/api/doctor/availability', availabilityRoutes);
 
 // Global Error Handler
 app.use(errorHandler);

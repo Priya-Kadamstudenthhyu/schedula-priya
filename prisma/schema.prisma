@@ -13,15 +13,17 @@ enum Role {
 }
 
 model User {
-  id             String          @id @default(uuid())
-  name           String
-  email          String          @unique
-  password       String
-  role           Role
-  createdAt      DateTime        @default(now())
-  updatedAt      DateTime        @updatedAt
-  doctorProfile  DoctorProfile?
-  patientProfile PatientProfile?
+  id                    String                  @id @default(uuid())
+  name                  String
+  email                 String                  @unique
+  password              String
+  role                  Role
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+  doctorProfile         DoctorProfile?
+  patientProfile        PatientProfile?
+  recurringAvailability RecurringAvailability[] @relation("DoctorRecurring")
+  customAvailability    CustomAvailability[]    @relation("DoctorCustom")
 }
 
 model DoctorProfile {
@@ -50,4 +52,36 @@ model PatientProfile {
   basicHealthInfo String?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+}
+
+enum DayOfWeek {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+model RecurringAvailability {
+  id        String    @id @default(uuid())
+  doctorId  String
+  doctor    User      @relation("DoctorRecurring", fields: [doctorId], references: [id], onDelete: Cascade)
+  dayOfWeek DayOfWeek
+  startTime String    // e.g. "09:00"
+  endTime   String    // e.g. "13:00"
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model CustomAvailability {
+  id        String   @id @default(uuid())
+  doctorId  String
+  doctor    User     @relation("DoctorCustom", fields: [doctorId], references: [id], onDelete: Cascade)
+  date      DateTime // specific date override
+  startTime String   // e.g. "14:00"
+  endTime   String   // e.g. "16:00"
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
