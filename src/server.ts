@@ -39,9 +39,9 @@ app.get('/api/health', (req, res) => {
 
 // Routes
 app.use('/api/auth', authRoutes);
+app.use('/api/doctor/availability', availabilityRoutes);
 app.use('/api/doctor', doctorRoutes);
 app.use('/api/patient', patientRoutes);
-app.use('/api/doctor/availability', availabilityRoutes);
 
 // Global Error Handler
 app.use(errorHandler);
