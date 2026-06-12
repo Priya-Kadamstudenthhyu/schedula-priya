@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { getDoctorProfile, createDoctorProfile, updateDoctorProfile } from '../controllers/profile.controller';
 import { getDoctors, getDoctorById } from '../controllers/discovery.controller';
+import { getAvailableSlots } from '../controllers/slot.controller';
 import { authenticate } from '../middlewares/auth.middleware';
 import { authorizeRole } from '../middlewares/role.middleware';
 
@@ -19,6 +20,7 @@ router.patch('/profile', doctorOnly, updateDoctorProfile);
 // DOCTOR DISCOVERY ROUTES (Open to any logged-in user)
 // ==========================================
 router.get('/', authenticate, getDoctors);
+router.get('/:doctorId/slots', authenticate, getAvailableSlots);
 router.get('/:id', authenticate, getDoctorById);
 
 export default router;
