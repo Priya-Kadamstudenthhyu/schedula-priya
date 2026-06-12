@@ -24,6 +24,8 @@ model User {
   patientProfile        PatientProfile?
   recurringAvailability RecurringAvailability[] @relation("DoctorRecurring")
   customAvailability    CustomAvailability[]    @relation("DoctorCustom")
+  doctorAppointments    Appointment[]           @relation("DoctorAppointments")
+  patientAppointments   Appointment[]           @relation("PatientAppointments")
 }
 
 model DoctorProfile {
@@ -35,6 +37,7 @@ model DoctorProfile {
   experience      Int
   qualification   String
   consultationFee Int
+  slotDuration    Int      @default(15) // Configurable slot duration in minutes
   availability    String
   isAvailable     Boolean  @default(true)
   createdAt       DateTime @default(now())
@@ -84,4 +87,24 @@ model CustomAvailability {
   endTime   String   // e.g. "16:00"
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+enum AppointmentStatus {
+  SCHEDULED
+  COMPLETED
+  CANCELLED
+}
+
+model Appointment {
+  id        String            @id @default(uuid())
+  doctorId  String
+  patientId String
+  doctor    User              @relation("DoctorAppointments", fields: [doctorId], references: [id])
+  patient   User              @relation("PatientAppointments", fields: [patientId], references: [id])
+  date      DateTime
+  startTime String
+  endTime   String
+  status    AppointmentStatus @default(SCHEDULED)
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
 }

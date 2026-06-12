@@ -82,7 +82,7 @@ export const getRecurringAvailability = async (req: Request, res: Response, next
 export const updateRecurringAvailability = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const doctorId = (req as any).user.id;
-    const { id } = req.params;
+    const id = req.params.id as string;
     const parsed = updateRecurringAvailabilitySchema.parse(req.body);
 
     // Find the slot and verify ownership
@@ -125,7 +125,7 @@ export const updateRecurringAvailability = async (req: Request, res: Response, n
 export const deleteRecurringAvailability = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const doctorId = (req as any).user.id;
-    const { id } = req.params;
+    const id = req.params.id as string;
 
     const slot = await prisma.recurringAvailability.findUnique({ where: { id } });
     if (!slot) return res.status(404).json({ success: false, message: 'Availability slot not found.' });
