@@ -8,17 +8,11 @@ import {
 
 const prisma = new PrismaClient();
 
-// ─── HELPER: Check time overlap ─────────────────────────────────────────────
-// Returns true if [s1,e1] overlaps with [s2,e2]
+
 function isOverlapping(s1: string, e1: string, s2: string, e2: string): boolean {
   return s1 < e2 && e1 > s2;
 }
 
-// ════════════════════════════════════════════════════════════
-// RECURRING AVAILABILITY
-// ════════════════════════════════════════════════════════════
-
-// POST /doctor/availability
 export const createRecurringAvailability = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const doctorId = (req as any).user.id;

@@ -5,6 +5,7 @@ import authRoutes from './routes/auth.routes';
 import doctorRoutes from './routes/doctor.routes';
 import patientRoutes from './routes/patient.routes';
 import availabilityRoutes from './routes/availability.routes';
+import appointmentRoutes from './routes/appointment.routes';
 import { errorHandler } from './middlewares/error.middleware';
 
 dotenv.config();
@@ -26,7 +27,8 @@ app.get('/', (req, res) => {
     endpoints: {
       auth: '/api/auth/signup, /api/auth/login',
       doctor: '/api/doctor, /api/doctor/:id, /api/doctor/profile',
-      patient: '/api/patient/profile'
+      patient: '/api/patient/profile',
+      appointment: '/api/appointment'
     },
     docs: 'See README.md for full API documentation'
   });
@@ -41,6 +43,7 @@ app.get('/api/health', (req, res) => {
 app.use('/api/auth', authRoutes);
 app.use('/api/doctor/availability', availabilityRoutes);
 app.use('/api/doctor', doctorRoutes);
+app.use('/api/appointment', appointmentRoutes);
 app.use('/api/patient', patientRoutes);
 
 // Global Error Handler

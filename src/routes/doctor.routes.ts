@@ -5,6 +5,8 @@ import { getAvailableSlots } from '../controllers/slot.controller';
 import { authenticate } from '../middlewares/auth.middleware';
 import { authorizeRole } from '../middlewares/role.middleware';
 
+import { getDoctorAppointments } from '../controllers/appointment.controller';
+
 const router = Router();
 
 // ==========================================
@@ -15,6 +17,7 @@ const doctorOnly = [authenticate, authorizeRole('DOCTOR')];
 router.post('/profile', doctorOnly, createDoctorProfile);
 router.get('/profile', doctorOnly, getDoctorProfile);
 router.patch('/profile', doctorOnly, updateDoctorProfile);
+router.get('/appointments', doctorOnly, getDoctorAppointments);
 
 // ==========================================
 // DOCTOR DISCOVERY ROUTES (Open to any logged-in user)
