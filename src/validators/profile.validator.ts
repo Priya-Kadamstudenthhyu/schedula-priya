@@ -6,7 +6,11 @@ export const doctorProfileSchema = z.object({
   experience: z.number().int().min(0, "Experience must be a positive number"),
   qualification: z.string().min(2, "Qualification must be provided"),
   consultationFee: z.number().int().min(0, "Consultation fee must be a positive number"),
-  availability: z.string().min(2, "Availability must be provided")
+  availability: z.string().min(2, "Availability must be provided"),
+  slotDuration: z.number().int().min(5).optional(),
+  schedulingType: z.enum(['STREAM', 'WAVE']).optional(),
+  bufferTime: z.number().int().min(0).optional(),
+  waveCapacity: z.number().int().min(1).optional()
 });
 
 export const updateDoctorProfileSchema = doctorProfileSchema.partial();

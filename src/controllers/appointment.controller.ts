@@ -75,10 +75,12 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
       return res.status(400).json({ success: false, message: 'Cannot book an appointment in the past.' });
     }
 
-    // 3. Verify Slot Existence & Availability
+    // 3. Resolve Availability (Custom Override > Recurring)
+    const schedulingType = doctor.doctorProfile?.schedulingType || 'STREAM';
     const slotDuration = doctor.doctorProfile?.slotDuration || 15;
-    
-    // Resolve availability window
+    const bufferTime = doctor.doctorProfile?.bufferTime || 0;
+    const waveCapacity = doctor.doctorProfile?.waveCapacity || 5;
+
     let availableWindows: { startTime: string; endTime: string }[] = [];
     const customAvailability = await prisma.customAvailability.findMany({
       where: { doctorId: parsed.doctorId, date: parsedDate },
@@ -97,40 +99,67 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
       availableWindows = recurringAvailability;
     }
 
-    // Generate valid slots strictly to see if the requested slot is actually offered by the doctor
-    let isValidSlot = false;
-    for (const window of availableWindows) {
-      let currentStartTime = window.startTime;
-      while (currentStartTime < window.endTime) {
-        const currentEndTime = addMinutesToTime(currentStartTime, slotDuration);
-        if (currentEndTime > window.endTime) break;
-        
-        if (currentStartTime === parsed.startTime && currentEndTime === parsed.endTime) {
-          isValidSlot = true;
-          break;
+    let assignedToken: number | null = null;
+
+    if (schedulingType === 'STREAM') {
+      // Stream Scheduling Validation
+      let isValidSlot = false;
+      for (const window of availableWindows) {
+        let currentStartTime = window.startTime;
+        while (currentStartTime < window.endTime) {
+          const currentEndTime = addMinutesToTime(currentStartTime, slotDuration);
+          if (currentEndTime > window.endTime) break;
+          
+          if (currentStartTime === parsed.startTime && currentEndTime === parsed.endTime) {
+            isValidSlot = true;
+            break;
+          }
+          currentStartTime = addMinutesToTime(currentEndTime, bufferTime);
         }
-        currentStartTime = currentEndTime;
+        if (isValidSlot) break;
       }
-      if (isValidSlot) break;
-    }
 
-    if (!isValidSlot) {
-      return res.status(400).json({ success: false, message: 'Invalid slot. This slot is not offered by the doctor.' });
-    }
-
-    // 4. Duplicate Booking Prevention
-    const existingAppointment = await prisma.appointment.findFirst({
-      where: {
-        doctorId: parsed.doctorId,
-        date: parsedDate,
-        startTime: parsed.startTime,
-        endTime: parsed.endTime,
-        status: 'SCHEDULED'
+      if (!isValidSlot) {
+        return res.status(400).json({ success: false, message: 'Invalid slot. This slot is not offered by the doctor.' });
       }
-    });
 
-    if (existingAppointment) {
-      return res.status(409).json({ success: false, message: 'This slot is already booked.' });
+      const existingAppointment = await prisma.appointment.findFirst({
+        where: {
+          doctorId: parsed.doctorId,
+          date: parsedDate,
+          startTime: parsed.startTime,
+          endTime: parsed.endTime,
+          status: 'SCHEDULED'
+        }
+      });
+
+      if (existingAppointment) {
+        return res.status(409).json({ success: false, message: 'This exact slot is already booked.' });
+      }
+
+    } else if (schedulingType === 'WAVE') {
+      // Wave Scheduling Validation
+      const validWave = availableWindows.find(w => w.startTime === parsed.startTime && w.endTime === parsed.endTime);
+      
+      if (!validWave) {
+        return res.status(400).json({ success: false, message: 'Invalid wave window. Please select an exact availability window.' });
+      }
+
+      const existingAppointmentsInWave = await prisma.appointment.count({
+        where: {
+          doctorId: parsed.doctorId,
+          date: parsedDate,
+          startTime: parsed.startTime,
+          endTime: parsed.endTime,
+          status: 'SCHEDULED'
+        }
+      });
+
+      if (existingAppointmentsInWave >= waveCapacity) {
+        return res.status(400).json({ success: false, message: 'This wave window is completely full.' });
+      }
+
+      assignedToken = existingAppointmentsInWave + 1;
     }
 
     // 5. Create Appointment
@@ -141,6 +170,7 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
         date: parsedDate,
         startTime: parsed.startTime,
         endTime: parsed.endTime,
+        tokenNumber: assignedToken,
         status: 'SCHEDULED'
       }
     });

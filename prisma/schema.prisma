@@ -12,6 +12,11 @@ enum Role {
   PATIENT
 }
 
+enum SchedulingType {
+  STREAM
+  WAVE
+}
+
 model User {
   id                    String                  @id @default(uuid())
   name                  String
@@ -29,19 +34,22 @@ model User {
 }
 
 model DoctorProfile {
-  id              String   @id @default(uuid())
-  userId          String   @unique
-  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id              String         @id @default(uuid())
+  userId          String         @unique
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
   fullName        String
   specialization  String
   experience      Int
   qualification   String
   consultationFee Int
-  slotDuration    Int      @default(15) // Configurable slot duration in minutes
+  slotDuration    Int            @default(15) // Configurable slot duration in minutes
+  schedulingType  SchedulingType @default(STREAM)
+  bufferTime      Int            @default(0)  // Buffer time between slots (STREAM)
+  waveCapacity    Int            @default(5)  // Max patients per wave (WAVE)
   availability    String
-  isAvailable     Boolean  @default(true)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  isAvailable     Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 }
 
 model PatientProfile {
@@ -101,10 +109,11 @@ model Appointment {
   patientId String
   doctor    User              @relation("DoctorAppointments", fields: [doctorId], references: [id])
   patient   User              @relation("PatientAppointments", fields: [patientId], references: [id])
-  date      DateTime
-  startTime String
-  endTime   String
-  status    AppointmentStatus @default(SCHEDULED)
-  createdAt DateTime          @default(now())
-  updatedAt DateTime          @updatedAt
+  date        DateTime
+  startTime   String
+  endTime     String
+  tokenNumber Int?              // Assigned for WAVE scheduling
+  status      AppointmentStatus @default(SCHEDULED)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
 }
