@@ -8,7 +8,11 @@ exports.doctorProfileSchema = zod_1.z.object({
     experience: zod_1.z.number().int().min(0, "Experience must be a positive number"),
     qualification: zod_1.z.string().min(2, "Qualification must be provided"),
     consultationFee: zod_1.z.number().int().min(0, "Consultation fee must be a positive number"),
-    availability: zod_1.z.string().min(2, "Availability must be provided")
+    availability: zod_1.z.string().min(2, "Availability must be provided"),
+    slotDuration: zod_1.z.number().int().min(5).optional(),
+    schedulingType: zod_1.z.enum(['STREAM', 'WAVE']).optional(),
+    bufferTime: zod_1.z.number().int().min(0).optional(),
+    waveCapacity: zod_1.z.number().int().min(1).optional()
 });
 exports.updateDoctorProfileSchema = exports.doctorProfileSchema.partial();
 exports.patientProfileSchema = zod_1.z.object({
