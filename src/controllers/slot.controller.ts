@@ -53,7 +53,7 @@ function isSlotInPast(date: Date, slotStartTime: string): boolean {
 
 export const getAvailableSlots = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { doctorId } = req.params;
+    const doctorId = req.params.doctorId as string;
     const { date } = req.query;
 
     if (!date || typeof date !== 'string') {
@@ -68,11 +68,11 @@ export const getAvailableSlots = async (req: Request, res: Response, next: NextF
 
     // 1. Check if Doctor exists and get their slotDuration
     const doctor = await prisma.user.findUnique({
-      where: { id: doctorId, role: 'DOCTOR' },
+      where: { id: doctorId },
       include: { doctorProfile: true },
     });
 
-    if (!doctor) {
+    if (!doctor || doctor.role !== 'DOCTOR') {
       return res.status(404).json({ success: false, message: 'Doctor not found.' });
     }
 

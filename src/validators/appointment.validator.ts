@@ -13,3 +13,14 @@ export const bookAppointmentSchema = z.object({
   message: 'startTime must be before endTime',
   path: ['endTime'],
 });
+
+export const rescheduleAppointmentSchema = z.object({
+  date: z.string().refine(val => !isNaN(Date.parse(val)), {
+    message: 'date must be a valid date string e.g. 2026-06-20',
+  }),
+  startTime: z.string().regex(TIME_REGEX, 'startTime must be in HH:MM format e.g. 10:00'),
+  endTime: z.string().regex(TIME_REGEX, 'endTime must be in HH:MM format e.g. 10:15'),
+}).refine(data => data.startTime < data.endTime, {
+  message: 'startTime must be before endTime',
+  path: ['endTime'],
+});
