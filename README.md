@@ -3,6 +3,7 @@
 A production-ready RESTful backend API for a doctor-patient appointment scheduling platform built with **Node.js**, **Express**, **TypeScript**, **Prisma ORM**, and **PostgreSQL**.
 
 > **Live API:** [https://schedula-priya.onrender.com](https://schedula-priya.onrender.com)
+> **Postman Collection:** Located in the repository root at [Schedula.postman_collection.json](./Schedula.postman_collection.json)
 
 ---
 
@@ -29,7 +30,10 @@ src/
 ├── controllers/        # Business logic
 │   ├── auth.controller.ts
 │   ├── profile.controller.ts
-│   └── discovery.controller.ts
+│   ├── discovery.controller.ts
+│   ├── availability.controller.ts
+│   ├── slot.controller.ts
+│   └── appointment.controller.ts
 ├── middlewares/        # Auth, role, error handlers
 │   ├── auth.middleware.ts
 │   ├── role.middleware.ts
@@ -37,10 +41,14 @@ src/
 ├── routes/             # API route definitions
 │   ├── auth.routes.ts
 │   ├── doctor.routes.ts
-│   └── patient.routes.ts
+│   ├── patient.routes.ts
+│   ├── availability.routes.ts
+│   └── appointment.routes.ts
 ├── validators/         # Zod schemas
 │   ├── auth.validator.ts
-│   └── profile.validator.ts
+│   ├── profile.validator.ts
+│   ├── availability.validator.ts
+│   └── appointment.validator.ts
 └── server.ts           # App entry point
 prisma/
 ├── schema.prisma       # Database schema
@@ -49,96 +57,66 @@ prisma/
 
 ---
 
+## 🛠️ Features Implemented (Up to Day 10)
+
+### 1. Authentication & Roles (`Day 1 & Day 2`)
+- JWT-based authentication with stateless login.
+- Role-Based Access Control (RBAC) restricting specific endpoints to `PATIENT` or `DOCTOR` roles.
+
+### 2. Profiles & Onboarding (`Day 3`)
+- Dedicated doctor and patient onboarding forms.
+- Configure specialization, experience, fees, and configurable slot durations.
+
+### 3. Doctor Discovery & Search (`Day 4`)
+- Paginated search APIs with parameters for `name`, `specialization`, and `availability`.
+
+### 4. Availability & Slot Generation (`Day 6 & Day 7`)
+- **Recurring Availability:** Weekly doctor schedules (e.g. Every Monday 09:00 - 13:00).
+- **Custom Availability Overrides:** Specific single-date overrides that take precedence over recurring rules.
+- **Dynamic Slot Generation:** Calculates exact time slots based on the doctor's `slotDuration` (Stream strategy), filtering out already booked or past slots.
+
+### 5. Appointment Booking (`Day 8`)
+- Patients can view available slots and book appointments.
+- Prevent duplicate bookings for the same slot.
+
+### 6. Advanced Scheduling Strategies (`Day 9`)
+- **STREAM strategy:** Exact 1-on-1 time slots with optional customizable buffer times between sessions.
+- **WAVE strategy:** High-volume token-based bookings where a doctor sets a capacity (e.g. max 5 patients) per entire window. Assigned sequential tokens (Token 1, 2, 3...) upon booking.
+
+### 7. Appointment Rescheduling (`Day 10`)
+- Patients can reschedule existing appointments to a new slot (Stream or Wave).
+- **30-Minute Cutoff Rule:** Patients cannot reschedule or cancel an appointment if less than 30 minutes remain before its start time.
+- **Auto Next-Slot Suggestions:** If a slot is booked, full, or unavailable, the response automatically computes and suggests the next available slot for that doctor.
+- **Serializable Transactions:** Uses `Prisma` transactions with `Serializable` isolation level to completely prevent race conditions.
+
+---
+
 ## 🔗 API Endpoints
 
-### Auth Routes (`/api/auth`)
+Detailed endpoint routes and documentation are exported in [Schedula.postman_collection.json](./Schedula.postman_collection.json). Below is a summary:
 
-| Method | Endpoint | Description | Auth Required |
-|---|---|---|---|
-| `POST` | `/api/auth/signup` | Register a new Doctor or Patient | ❌ |
-| `POST` | `/api/auth/login` | Login and receive a JWT token | ❌ |
+### Auth APIs (`/api/auth`)
+- `POST /api/auth/signup` - Register a user
+- `POST /api/auth/login` - Authenticate user & get JWT
 
-#### Signup Request Body
-```json
-{
-  "name": "Dr. Priya Kadam",
-  "email": "priya@gmail.com",
-  "password": "password123",
-  "role": "DOCTOR"
-}
-```
+### Profile Onboarding (`/api/patient` & `/api/doctor`)
+- `POST /api/patient/profile` - Onboard patient details
+- `POST /api/doctor/profile` - Onboard doctor configurations
+- `GET /api/doctor/profile` - Retrieve own doctor configurations
 
-#### Login Request Body
-```json
-{
-  "email": "priya@gmail.com",
-  "password": "password123"
-}
-```
+### Availability Management (`/api/doctor/availability`)
+- `POST /api/doctor/availability/recurring` - Set recurring weekly schedule
+- `POST /api/doctor/availability/custom` - Set custom date availability overrides
 
----
+### Discovery & Slots (`/api/doctor`)
+- `GET /api/doctor` - List and filter doctors
+- `GET /api/doctor/:doctorId/slots?date=YYYY-MM-DD` - Retrieve available booking slots/waves for a specific date
 
-### Doctor Onboarding Routes (`/api/doctor/profile`)
-> 🔒 **DOCTOR role only** | Requires `Authorization: Bearer <TOKEN>` header
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/doctor/profile` | Create doctor profile |
-| `GET` | `/api/doctor/profile` | Get own doctor profile |
-| `PATCH` | `/api/doctor/profile` | Update doctor profile |
-
-#### Doctor Profile Request Body
-```json
-{
-  "fullName": "Dr. Priya Kadam",
-  "specialization": "Cardiologist",
-  "experience": 10,
-  "qualification": "MBBS, MD",
-  "consultationFee": 1000,
-  "availability": "Mon-Fri 9AM-5PM"
-}
-```
-
----
-
-### Doctor Discovery Routes (`/api/doctor`)
-> 🔒 Any logged-in user (Doctor or Patient)
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `GET` | `/api/doctor` | Fetch all doctors (with filters & pagination) |
-| `GET` | `/api/doctor/:id` | Get a specific doctor by ID |
-
-#### Query Parameters for Filtering
-| Parameter | Example | Description |
-|---|---|---|
-| `search` | `?search=priya` | Partial name search (case-insensitive) |
-| `specialization` | `?specialization=cardiologist` | Filter by specialization |
-| `availability` | `?availability=true` | Filter by availability |
-| `page` | `?page=1` | Page number (default: 1) |
-| `limit` | `?limit=10` | Results per page (default: 10) |
-
----
-
-### Patient Onboarding Routes (`/api/patient/profile`)
-> 🔒 **PATIENT role only** | Requires `Authorization: Bearer <TOKEN>` header
-
-| Method | Endpoint | Description |
-|---|---|---|
-| `POST` | `/api/patient/profile` | Create patient profile |
-| `GET` | `/api/patient/profile` | Get own patient profile |
-| `PATCH` | `/api/patient/profile` | Update patient profile |
-
-#### Patient Profile Request Body
-```json
-{
-  "fullName": "Priya Kadam",
-  "age": 25,
-  "gender": "Female",
-  "contactNumber": "9876543210",
-  "healthInfo": "No known allergies"
-}
-```
+### Appointment Booking & Rescheduling (`/api/appointment`)
+- `POST /api/appointment` - Book a slot/wave
+- `GET /api/appointment/my` - View patient appointments
+- `PATCH /api/appointment/:id/cancel` - Cancel appointment (patient)
+- `PATCH /api/appointment/:id/reschedule` - Reschedule appointment (patient)
 
 ---
 
@@ -147,7 +125,7 @@ prisma/
 Create a `.env` file in the root directory:
 ```env
 DATABASE_URL="postgresql://user:password@host/db?sslmode=require"
-JWT_SECRET="your_super_secret_key"
+JWT_SECRET="your_jwt_secret_key"
 PORT=3000
 ```
 
@@ -163,10 +141,11 @@ cd schedula-priya
 # 2. Install dependencies
 npm install
 
-# 3. Set up environment variables
-# Create a .env file with the values above
+# 3. Create .env file
+# Configure DATABASE_URL, JWT_SECRET, and PORT
 
-# 4. Run database migrations
+# 4. Generate client & run database migrations
+npx prisma generate
 npx prisma migrate dev
 
 # 5. Start development server
@@ -175,37 +154,9 @@ npm run dev
 
 ---
 
-## 🏗️ Build for Production
-
-```bash
-# Compile TypeScript
-npm run build
-
-# Start production server
-npm start
-```
-
----
-
-## 📦 Branch Structure
-
-| Branch | Purpose |
-|---|---|
-| `main` | Production-ready code |
-| `feature/auth-roles` | Day 2 – Auth & Role-based access |
-| `feature/onboarding` | Day 3 – Doctor & Patient onboarding APIs |
-| `feature/discovery` | Day 4 – Doctor Discovery & Search APIs |
-| `feature/deployment` | Day 5 – Production deployment configuration |
-
----
-
-## 🔒 Security Features
-
-- JWT-based stateless authentication
-- Role-based access control (DOCTOR / PATIENT)
-- Zod schema validation on all request bodies
-- bcryptjs password hashing (salt rounds: 10)
-- Environment variables for all secrets (no hardcoding)
+## 📦 Branch Strategy & Workflow
+- **`main`**: Production release branch.
+- **`feature/rescheduling`**: Isolated branch containing Day 10 Rescheduling APIs.
 
 ---
 
