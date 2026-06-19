@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getDoctorAppointments = exports.rescheduleAppointment = exports.cancelAppointment = exports.getPatientAppointments = exports.bookAppointment = void 0;
+exports.doctorCancelAppointment = exports.getDoctorAppointments = exports.rescheduleAppointment = exports.cancelAppointment = exports.getPatientAppointments = exports.bookAppointment = void 0;
 const client_1 = require("@prisma/client");
 const appointment_validator_1 = require("../validators/appointment.validator");
 const prisma = new client_1.PrismaClient();
@@ -587,8 +587,25 @@ exports.rescheduleAppointment = rescheduleAppointment;
 const getDoctorAppointments = async (req, res, next) => {
     try {
         const doctorId = req.user.id;
+        const { date } = req.query;
+        let dateFilter;
+        if (date) {
+            if (typeof date !== 'string') {
+                return res.status(400).json({ success: false, message: 'Invalid date filter format.' });
+            }
+            const parsedDate = new Date(date);
+            if (isNaN(parsedDate.getTime())) {
+                return res.status(400).json({ success: false, message: 'Invalid date format. Use YYYY-MM-DD.' });
+            }
+            parsedDate.setUTCHours(0, 0, 0, 0);
+            dateFilter = parsedDate;
+        }
         const appointments = await prisma.appointment.findMany({
-            where: { doctorId },
+            where: {
+                doctorId,
+                status: { not: 'CANCELLED' },
+                date: dateFilter ? dateFilter : undefined
+            },
             include: {
                 patient: {
                     select: {
@@ -598,14 +615,80 @@ const getDoctorAppointments = async (req, res, next) => {
                             select: { age: true, gender: true, contactDetails: true }
                         }
                     }
+                },
+                doctor: {
+                    select: {
+                        doctorProfile: {
+                            select: {
+                                schedulingType: true
+                            }
+                        }
+                    }
                 }
             },
             orderBy: [{ date: 'asc' }, { startTime: 'asc' }]
         });
-        res.status(200).json({ success: true, data: appointments });
+        const formatted = appointments.map(appt => ({
+            id: appt.id,
+            doctorId: appt.doctorId,
+            patientId: appt.patientId,
+            date: appt.date.toISOString().split('T')[0],
+            startTime: appt.startTime,
+            endTime: appt.endTime,
+            tokenNumber: appt.tokenNumber,
+            status: appt.status,
+            createdAt: appt.createdAt,
+            updatedAt: appt.updatedAt,
+            schedulingType: appt.doctor?.doctorProfile?.schedulingType || 'STREAM',
+            patient: appt.patient
+        }));
+        if (formatted.length === 0) {
+            return res.status(200).json({
+                success: true,
+                message: 'No appointments found.',
+                data: []
+            });
+        }
+        res.status(200).json({ success: true, data: formatted });
     }
     catch (error) {
         next(error);
     }
 };
 exports.getDoctorAppointments = getDoctorAppointments;
+// PATCH /api/doctor/appointments/:id/cancel
+const doctorCancelAppointment = async (req, res, next) => {
+    const id = req.params.id;
+    try {
+        const doctorId = req.user.id;
+        // 1. Fetch the existing appointment
+        const appointment = await prisma.appointment.findUnique({
+            where: { id }
+        });
+        if (!appointment) {
+            return res.status(404).json({ success: false, message: 'Appointment not found.' });
+        }
+        // 2. Authorization check
+        if (appointment.doctorId !== doctorId) {
+            return res.status(403).json({ success: false, message: 'Unauthorized to cancel this appointment.' });
+        }
+        // 3. Status checks
+        if (appointment.status === 'CANCELLED') {
+            return res.status(400).json({ success: false, message: 'Appointment is already cancelled.' });
+        }
+        // 4. Cancel the appointment
+        const cancelledAppointment = await prisma.appointment.update({
+            where: { id },
+            data: { status: 'CANCELLED' }
+        });
+        res.status(200).json({
+            success: true,
+            message: 'Appointment cancelled successfully.',
+            data: cancelledAppointment
+        });
+    }
+    catch (error) {
+        next(error);
+    }
+};
+exports.doctorCancelAppointment = doctorCancelAppointment;
