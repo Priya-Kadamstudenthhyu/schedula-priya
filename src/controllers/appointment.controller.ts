@@ -79,11 +79,13 @@ async function findNextAvailableSlot(
   const slotDuration = doctor.doctorProfile.slotDuration;
   const bufferTime = doctor.doctorProfile.bufferTime;
   const waveCapacity = doctor.doctorProfile.waveCapacity;
+  const searchWindow = doctor.doctorProfile.searchWindow;
 
   let currentDate = new Date(requestedDate);
-  const maxSearchDays = 30;
+  let workingDaysChecked = 0;
+  const maxCalendarDays = 365;
 
-  for (let i = 0; i < maxSearchDays; i++) {
+  for (let calendarDay = 0; calendarDay < maxCalendarDays; calendarDay++) {
     let windows: { startTime: string; endTime: string }[] = [];
     const customAvailability = await prisma.customAvailability.findMany({
       where: { doctorId, date: currentDate },
@@ -102,60 +104,68 @@ async function findNextAvailableSlot(
       windows = recurringAvailability;
     }
 
-    const appointments = await prisma.appointment.findMany({
-      where: {
-        doctorId,
-        date: currentDate,
-        status: 'SCHEDULED',
-        NOT: currentAppointmentId ? { id: currentAppointmentId } : undefined
-      }
-    });
+    if (windows.length > 0) {
+      workingDaysChecked++;
 
-    const isSameDate = currentDate.getTime() === requestedDate.getTime();
+      const appointments = await prisma.appointment.findMany({
+        where: {
+          doctorId,
+          date: currentDate,
+          status: 'SCHEDULED',
+          NOT: currentAppointmentId ? { id: currentAppointmentId } : undefined
+        }
+      });
 
-    if (schedulingType === 'STREAM') {
-      const bookedSlots = new Set(appointments.map(a => `${a.startTime}-${a.endTime}`));
+      const isSameDate = currentDate.getTime() === requestedDate.getTime();
 
-      for (const window of windows) {
-        let currentStartTime = window.startTime;
+      if (schedulingType === 'STREAM') {
+        const bookedSlots = new Set(appointments.map(a => `${a.startTime}-${a.endTime}`));
 
-        while (currentStartTime < window.endTime) {
-          const currentEndTime = addMinutesToTime(currentStartTime, slotDuration);
-          if (currentEndTime > window.endTime) break;
+        for (const window of windows) {
+          let currentStartTime = window.startTime;
 
-          const slotKey = `${currentStartTime}-${currentEndTime}`;
-          const isPast = isSlotInPast(currentDate, currentStartTime);
-          const isBooked = bookedSlots.has(slotKey);
-          const isAfterRequest = !isSameDate || currentStartTime > requestedStartTime;
+          while (currentStartTime < window.endTime) {
+            const currentEndTime = addMinutesToTime(currentStartTime, slotDuration);
+            if (currentEndTime > window.endTime) break;
 
-          if (!isPast && !isBooked && isAfterRequest) {
+            const slotKey = `${currentStartTime}-${currentEndTime}`;
+            const isPast = isSlotInPast(currentDate, currentStartTime);
+            const isBooked = bookedSlots.has(slotKey);
+            const isAfterRequest = !isSameDate || currentStartTime > requestedStartTime;
+
+            if (!isPast && !isBooked && isAfterRequest) {
+              return {
+                date: currentDate.toISOString().split('T')[0],
+                startTime: currentStartTime,
+                endTime: currentEndTime
+              };
+            }
+
+            currentStartTime = addMinutesToTime(currentEndTime, bufferTime);
+          }
+        }
+      } else if (schedulingType === 'WAVE') {
+        for (const window of windows) {
+          const bookedInWave = appointments.filter(
+            a => a.startTime === window.startTime && a.endTime === window.endTime
+          ).length;
+
+          const isPast = isSlotInPast(currentDate, window.startTime);
+          const isAfterRequest = !isSameDate || window.startTime > requestedStartTime;
+
+          if (!isPast && bookedInWave < waveCapacity && isAfterRequest) {
             return {
               date: currentDate.toISOString().split('T')[0],
-              startTime: currentStartTime,
-              endTime: currentEndTime
+              startTime: window.startTime,
+              endTime: window.endTime,
+              availableCapacity: waveCapacity - bookedInWave
             };
           }
-
-          currentStartTime = addMinutesToTime(currentEndTime, bufferTime);
         }
       }
-    } else if (schedulingType === 'WAVE') {
-      for (const window of windows) {
-        const bookedInWave = appointments.filter(
-          a => a.startTime === window.startTime && a.endTime === window.endTime
-        ).length;
 
-        const isPast = isSlotInPast(currentDate, window.startTime);
-        const isAfterRequest = !isSameDate || window.startTime > requestedStartTime;
-
-        if (!isPast && bookedInWave < waveCapacity && isAfterRequest) {
-          return {
-            date: currentDate.toISOString().split('T')[0],
-            startTime: window.startTime,
-            endTime: window.endTime,
-            availableCapacity: waveCapacity - bookedInWave
-          };
-        }
+      if (workingDaysChecked >= searchWindow) {
+        break;
       }
     }
 

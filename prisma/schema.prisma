@@ -46,6 +46,7 @@ model DoctorProfile {
   schedulingType  SchedulingType @default(STREAM)
   bufferTime      Int            @default(0)  // Buffer time between slots (STREAM)
   waveCapacity    Int            @default(5)  // Max patients per wave (WAVE)
+  searchWindow    Int            @default(30) // Max working days to search for next available slot
   availability    String
   isAvailable     Boolean        @default(true)
   createdAt       DateTime       @default(now())

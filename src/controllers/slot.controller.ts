@@ -51,6 +51,125 @@ function isSlotInPast(date: Date, slotStartTime: string): boolean {
   return false;
 }
 
+// Helper to sequentially search next available working day slots for a doctor
+async function findNextAvailableDaySlots(
+  doctorId: string,
+  startDate: Date
+): Promise<{ date: string; schedulingType: string; slots: any[] } | null> {
+  const doctor = await prisma.user.findUnique({
+    where: { id: doctorId },
+    include: { doctorProfile: true }
+  });
+  if (!doctor || !doctor.doctorProfile) return null;
+
+  const schedulingType = doctor.doctorProfile.schedulingType;
+  const slotDuration = doctor.doctorProfile.slotDuration;
+  const bufferTime = doctor.doctorProfile.bufferTime;
+  const waveCapacity = doctor.doctorProfile.waveCapacity;
+  const searchWindow = doctor.doctorProfile.searchWindow;
+
+  let currentDate = new Date(startDate);
+  let workingDaysChecked = 0;
+  const maxCalendarDaysLimit = 365;
+
+  for (let calendarDay = 0; calendarDay < maxCalendarDaysLimit; calendarDay++) {
+    let windows: { startTime: string; endTime: string }[] = [];
+    const customAvailability = await prisma.customAvailability.findMany({
+      where: { doctorId, date: currentDate },
+      orderBy: { startTime: 'asc' },
+    });
+
+    if (customAvailability.length > 0) {
+      windows = customAvailability;
+    } else {
+      const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
+      const dayOfWeek = dayNames[currentDate.getDay()] as any;
+      const recurringAvailability = await prisma.recurringAvailability.findMany({
+        where: { doctorId, dayOfWeek },
+        orderBy: { startTime: 'asc' },
+      });
+      windows = recurringAvailability;
+    }
+
+    const isWorkingDay = windows.length > 0;
+    if (isWorkingDay) {
+      workingDaysChecked++;
+
+      const appointments = await prisma.appointment.findMany({
+        where: {
+          doctorId,
+          date: currentDate,
+          status: 'SCHEDULED'
+        }
+      });
+
+      const generatedSlots: any[] = [];
+
+      if (schedulingType === 'STREAM') {
+        const bookedSlots = new Set(appointments.map(a => `${a.startTime}-${a.endTime}`));
+
+        for (const window of windows) {
+          let currentStartTime = window.startTime;
+
+          while (currentStartTime < window.endTime) {
+            const currentEndTime = addMinutesToTime(currentStartTime, slotDuration);
+            if (currentEndTime > window.endTime) break;
+
+            const slotKey = `${currentStartTime}-${currentEndTime}`;
+            const isPast = isSlotInPast(currentDate, currentStartTime);
+            const isBooked = bookedSlots.has(slotKey);
+
+            if (!isPast && !isBooked) {
+              generatedSlots.push({
+                startTime: currentStartTime,
+                endTime: currentEndTime
+              });
+            }
+
+            currentStartTime = addMinutesToTime(currentEndTime, bufferTime);
+          }
+        }
+      } else if (schedulingType === 'WAVE') {
+        for (const window of windows) {
+          const bookedInWave = appointments.filter(
+            a => a.startTime === window.startTime && a.endTime === window.endTime
+          ).length;
+
+          const isPast = isSlotInPast(currentDate, window.startTime);
+
+          if (!isPast && bookedInWave < waveCapacity) {
+            generatedSlots.push({
+              timeWindow: `${window.startTime} - ${window.endTime}`,
+              startTime: window.startTime,
+              endTime: window.endTime,
+              available: `${waveCapacity - bookedInWave}/${waveCapacity}`,
+              isFull: bookedInWave >= waveCapacity
+            });
+          }
+        }
+      }
+
+      if (generatedSlots.length > 0) {
+        return {
+          date: currentDate.toISOString().split('T')[0],
+          schedulingType,
+          slots: generatedSlots
+        };
+      }
+
+      if (workingDaysChecked >= searchWindow) {
+        break;
+      }
+    }
+
+    currentDate = new Date(currentDate);
+    currentDate.setDate(currentDate.getDate() + 1);
+    currentDate.setUTCHours(0, 0, 0, 0);
+  }
+
+  return null;
+}
+
 export const getAvailableSlots = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const doctorId = req.params.doctorId as string;
@@ -80,6 +199,7 @@ export const getAvailableSlots = async (req: Request, res: Response, next: NextF
     const slotDuration = doctor.doctorProfile?.slotDuration || 15;
     const bufferTime = doctor.doctorProfile?.bufferTime || 0;
     const waveCapacity = doctor.doctorProfile?.waveCapacity || 5;
+    const searchWindow = doctor.doctorProfile?.searchWindow || 30;
 
     // 2. Fetch Appointments for that date (to filter booked slots or calculate wave capacity)
     const appointments = await prisma.appointment.findMany({
@@ -111,77 +231,89 @@ export const getAvailableSlots = async (req: Request, res: Response, next: NextF
       availableWindows = recurringAvailability;
     }
 
-    if (availableWindows.length === 0) {
-      return res.status(200).json({
-        success: true,
-        message: 'Doctor is not available on this date.',
-        slots: []
-      });
-    }
+    // Note: if availableWindows is empty the next-available search below handles it
 
     // 4. Generate Slots based on Scheduling Type
     const generatedSlots = [];
 
-    if (schedulingType === 'STREAM') {
-      const bookedSlots = new Set(appointments.map(a => `${a.startTime}-${a.endTime}`));
+    if (availableWindows.length > 0) {
+      if (schedulingType === 'STREAM') {
+        const bookedSlots = new Set(appointments.map(a => `${a.startTime}-${a.endTime}`));
 
-      for (const window of availableWindows) {
-        let currentStartTime = window.startTime;
+        for (const window of availableWindows) {
+          let currentStartTime = window.startTime;
 
-        while (currentStartTime < window.endTime) {
-          const currentEndTime = addMinutesToTime(currentStartTime, slotDuration);
+          while (currentStartTime < window.endTime) {
+            const currentEndTime = addMinutesToTime(currentStartTime, slotDuration);
+            
+            if (currentEndTime > window.endTime) break;
+
+            const slotKey = `${currentStartTime}-${currentEndTime}`;
+            const isPast = isSlotInPast(parsedDate, currentStartTime);
+            const isBooked = bookedSlots.has(slotKey);
+
+            if (!isPast && !isBooked) {
+              generatedSlots.push({
+                startTime: currentStartTime,
+                endTime: currentEndTime,
+              });
+            }
+
+            // Add buffer time for the next slot
+            currentStartTime = addMinutesToTime(currentEndTime, bufferTime);
+          }
+        }
+      } else if (schedulingType === 'WAVE') {
+        for (const window of availableWindows) {
+          // Find appointments booked exactly for this wave window
+          const bookedInWave = appointments.filter(
+            a => a.startTime === window.startTime && a.endTime === window.endTime
+          ).length;
+
+          const isPast = isSlotInPast(parsedDate, window.startTime);
           
-          if (currentEndTime > window.endTime) break;
-
-          const slotKey = `${currentStartTime}-${currentEndTime}`;
-          const isPast = isSlotInPast(parsedDate, currentStartTime);
-          const isBooked = bookedSlots.has(slotKey);
-
-          if (!isPast && !isBooked) {
+          if (!isPast && bookedInWave < waveCapacity) {
             generatedSlots.push({
-              startTime: currentStartTime,
-              endTime: currentEndTime,
+              timeWindow: `${window.startTime} - ${window.endTime}`,
+              startTime: window.startTime,
+              endTime: window.endTime,
+              available: `${waveCapacity - bookedInWave}/${waveCapacity}`,
+              isFull: bookedInWave >= waveCapacity
             });
           }
-
-          // Add buffer time for the next slot
-          currentStartTime = addMinutesToTime(currentEndTime, bufferTime);
-        }
-      }
-    } else if (schedulingType === 'WAVE') {
-      for (const window of availableWindows) {
-        // Find appointments booked exactly for this wave window
-        const bookedInWave = appointments.filter(
-          a => a.startTime === window.startTime && a.endTime === window.endTime
-        ).length;
-
-        const isPast = isSlotInPast(parsedDate, window.startTime);
-        
-        if (!isPast) {
-          generatedSlots.push({
-            timeWindow: `${window.startTime} - ${window.endTime}`,
-            startTime: window.startTime,
-            endTime: window.endTime,
-            available: `${waveCapacity - bookedInWave}/${waveCapacity}`,
-            isFull: bookedInWave >= waveCapacity
-          });
         }
       }
     }
 
-    if (generatedSlots.length === 0) {
-      return res.status(200).json({
-        success: true,
-        message: 'No slots available for this date.',
-        slots: []
-      });
+    // 5. Evaluate availability and trigger Next Available search if empty
+    let slotsToReturn = generatedSlots;
+    let nextAvailableDate = date.split('T')[0];
+    let nextAvailableSearchExecuted = false;
+
+    if (availableWindows.length === 0 || generatedSlots.length === 0) {
+      nextAvailableSearchExecuted = true;
+      const nextDayResult = await findNextAvailableDaySlots(doctorId, parsedDate);
+
+      if (!nextDayResult) {
+        return res.status(200).json({
+          success: true,
+          message: `No appointments available in the next ${searchWindow} working days. Please try again later.`,
+          slots: []
+        });
+      }
+
+      nextAvailableDate = nextDayResult.date;
+      slotsToReturn = nextDayResult.slots;
     }
 
     res.status(200).json({
       success: true,
-      message: 'Available slots fetched successfully.',
+      message: nextAvailableSearchExecuted
+        ? `No available slots on the requested date. Suggesting next available day: ${nextAvailableDate}`
+        : 'Available slots fetched successfully.',
+      nextAvailableDate,
       schedulingType,
-      slots: generatedSlots,
+      slots: slotsToReturn
     });
 
   } catch (error) {
