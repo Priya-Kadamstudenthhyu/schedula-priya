@@ -1,7 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
+import prisma from '../lib/prisma';
 
 // Helper to add minutes to a "HH:MM" string
 function addMinutesToTime(time: string, minsToAdd: number): string {

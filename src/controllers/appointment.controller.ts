@@ -1,8 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
 import { bookAppointmentSchema, rescheduleAppointmentSchema } from '../validators/appointment.validator';
-
-const prisma = new PrismaClient();
+import prisma from '../lib/prisma';
 
 // Helper to check if a slot is in the past (Re-used from slot.controller logic)
 function isSlotInPast(date: Date, slotStartTime: string): boolean {

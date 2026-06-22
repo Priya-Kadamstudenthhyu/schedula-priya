@@ -1,12 +1,10 @@
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
 import {
   recurringAvailabilitySchema,
   updateRecurringAvailabilitySchema,
   customAvailabilitySchema,
 } from '../validators/availability.validator';
-
-const prisma = new PrismaClient();
+import prisma from '../lib/prisma';
 
 
 function isOverlapping(s1: string, e1: string, s2: string, e2: string): boolean {
