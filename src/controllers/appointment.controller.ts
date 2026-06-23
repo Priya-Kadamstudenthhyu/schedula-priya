@@ -196,6 +196,16 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
       }
     });
 
+    // 6. Create notification for patient
+    await prisma.notification.create({
+      data: {
+        patientId,
+        title: 'Appointment Booked',
+        message: `Your appointment with Dr. ${doctor.name} has been booked on ${parsedDate.toISOString().split('T')[0]} from ${parsed.startTime} to ${parsed.endTime}.`,
+        type: 'APPOINTMENT_BOOKED'
+      }
+    });
+
     res.status(201).json({ success: true, message: 'Appointment booked successfully.', data: appointment });
   } catch (error) {
     next(error);
@@ -267,6 +277,16 @@ export const cancelAppointment = async (req: Request, res: Response, next: NextF
     const cancelledAppointment = await prisma.appointment.update({
       where: { id },
       data: { status: 'CANCELLED' }
+    });
+
+    // Notify patient about cancellation
+    await prisma.notification.create({
+      data: {
+        patientId: appointment.patientId,
+        title: 'Appointment Cancelled',
+        message: `Your appointment on ${appointment.date.toISOString().split('T')[0]} from ${appointment.startTime} to ${appointment.endTime} has been cancelled.`,
+        type: 'APPOINTMENT_CANCELLED'
+      }
     });
 
     res.status(200).json({ success: true, message: 'Appointment cancelled successfully.', data: cancelledAppointment });
@@ -510,6 +530,16 @@ export const rescheduleAppointment = async (req: Request, res: Response, next: N
       });
     }, {
       isolationLevel: 'Serializable'
+    });
+
+    // Notify patient about rescheduling
+    await prisma.notification.create({
+      data: {
+        patientId: appointment.patientId,
+        title: 'Appointment Rescheduled',
+        message: `Your appointment has been rescheduled to ${parsedDate.toISOString().split('T')[0]} from ${parsed.startTime} to ${parsed.endTime}.`,
+        type: 'APPOINTMENT_RESCHEDULED'
+      }
     });
 
     res.status(200).json({

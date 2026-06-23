@@ -31,6 +31,7 @@ model User {
   customAvailability    CustomAvailability[]    @relation("DoctorCustom")
   doctorAppointments    Appointment[]           @relation("DoctorAppointments")
   patientAppointments   Appointment[]           @relation("PatientAppointments")
+  patientNotifications  Notification[]          @relation("PatientNotifications")
 }
 
 model DoctorProfile {
@@ -117,4 +118,23 @@ model Appointment {
   status      AppointmentStatus @default(SCHEDULED)
   createdAt   DateTime          @default(now())
   updatedAt   DateTime          @updatedAt
+}
+
+enum NotificationType {
+  APPOINTMENT_BOOKED
+  APPOINTMENT_CANCELLED
+  APPOINTMENT_RESCHEDULED
+  APPOINTMENT_REMINDER
+  FOLLOW_UP_REMINDER
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  patientId String
+  patient   User             @relation("PatientNotifications", fields: [patientId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      NotificationType
+  isRead    Boolean          @default(false)
+  createdAt DateTime         @default(now())
 }

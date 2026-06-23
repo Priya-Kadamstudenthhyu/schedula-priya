@@ -6,6 +6,7 @@ import doctorRoutes from './routes/doctor.routes';
 import patientRoutes from './routes/patient.routes';
 import availabilityRoutes from './routes/availability.routes';
 import appointmentRoutes from './routes/appointment.routes';
+import notificationRoutes from './routes/notification.routes';
 import { errorHandler } from './middlewares/error.middleware';
 
 dotenv.config();
@@ -45,6 +46,7 @@ app.use('/api/doctor/availability', availabilityRoutes);
 app.use('/api/doctor', doctorRoutes);
 app.use('/api/appointment', appointmentRoutes);
 app.use('/api/patient', patientRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 // Global Error Handler
 app.use(errorHandler);
