@@ -1,49 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { bookAppointmentSchema, rescheduleAppointmentSchema } from '../validators/appointment.validator';
 import prisma from '../lib/prisma';
-
-// Helper to check if a slot is in the past (Re-used from slot.controller logic)
-function isSlotInPast(date: Date, slotStartTime: string): boolean {
-  const now = new Date();
-  
-  if (
-    date.getUTCFullYear() < now.getUTCFullYear() ||
-    (date.getUTCFullYear() === now.getUTCFullYear() && date.getUTCMonth() < now.getUTCMonth()) ||
-    (date.getUTCFullYear() === now.getUTCFullYear() && date.getUTCMonth() === now.getUTCMonth() && date.getUTCDate() < now.getUTCDate())
-  ) {
-    return true;
-  }
-
-  if (
-    date.getUTCFullYear() === now.getUTCFullYear() &&
-    date.getUTCMonth() === now.getUTCMonth() &&
-    date.getUTCDate() === now.getUTCDate()
-  ) {
-    const [slotHours, slotMins] = slotStartTime.split(':').map(Number);
-    const currentHours = now.getHours();
-    const currentMins = now.getMinutes();
-    
-    if (slotHours < currentHours) return true;
-    if (slotHours === currentHours && slotMins <= currentMins) return true;
-  }
-
-  return false;
-}
-
-// Helper to add minutes to a "HH:MM" string
-function addMinutesToTime(time: string, minsToAdd: number): string {
-  const [hoursStr, minsStr] = time.split(':');
-  let hours = parseInt(hoursStr, 10);
-  let mins = parseInt(minsStr, 10);
-
-  mins += minsToAdd;
-  hours += Math.floor(mins / 60);
-  mins = mins % 60;
-
-  const h = hours.toString().padStart(2, '0');
-  const m = mins.toString().padStart(2, '0');
-  return `${h}:${m}`;
-}
+import { findNextAvailableSlots, isSlotInPast, addMinutesToTime } from '../services/slot.service';
 
 // Helper to get the local Date object for the appointment start time
 function getAppointmentStartDateTime(date: Date, startTime: string): Date {
@@ -60,119 +18,25 @@ function getAppointmentStartDateTime(date: Date, startTime: string): Date {
   );
 }
 
-// Helper to find the next available slot for a doctor starting from requestedDate
+// Wrapper around the shared slot service for providing single slot suggestions
 async function findNextAvailableSlot(
   doctorId: string,
   requestedDate: Date,
   requestedStartTime: string,
   currentAppointmentId?: string
 ): Promise<any | null> {
-  const doctor = await prisma.user.findUnique({
-    where: { id: doctorId },
-    include: { doctorProfile: true }
+  const suggestedSlot = await findNextAvailableSlots(doctorId, requestedDate, {
+    requestedStartTime,
+    returnSingleSlot: true,
+    currentAppointmentId
   });
-  if (!doctor || !doctor.doctorProfile) return null;
 
-  const schedulingType = doctor.doctorProfile.schedulingType;
-  const slotDuration = doctor.doctorProfile.slotDuration;
-  const bufferTime = doctor.doctorProfile.bufferTime;
-  const waveCapacity = doctor.doctorProfile.waveCapacity;
-  const searchWindow = doctor.doctorProfile.searchWindow;
-
-  let currentDate = new Date(requestedDate);
-  let workingDaysChecked = 0;
-  const maxCalendarDays = 365;
-
-  for (let calendarDay = 0; calendarDay < maxCalendarDays; calendarDay++) {
-    let windows: { startTime: string; endTime: string }[] = [];
-    const customAvailability = await prisma.customAvailability.findMany({
-      where: { doctorId, date: currentDate },
-      orderBy: { startTime: 'asc' },
-    });
-
-    if (customAvailability.length > 0) {
-      windows = customAvailability;
-    } else {
-      const dayNames = ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'];
-      const dayOfWeek = dayNames[currentDate.getDay()] as any;
-      const recurringAvailability = await prisma.recurringAvailability.findMany({
-        where: { doctorId, dayOfWeek },
-        orderBy: { startTime: 'asc' },
-      });
-      windows = recurringAvailability;
-    }
-
-    if (windows.length > 0) {
-      workingDaysChecked++;
-
-      const appointments = await prisma.appointment.findMany({
-        where: {
-          doctorId,
-          date: currentDate,
-          status: 'SCHEDULED',
-          NOT: currentAppointmentId ? { id: currentAppointmentId } : undefined
-        }
-      });
-
-      const isSameDate = currentDate.getTime() === requestedDate.getTime();
-
-      if (schedulingType === 'STREAM') {
-        const bookedSlots = new Set(appointments.map(a => `${a.startTime}-${a.endTime}`));
-
-        for (const window of windows) {
-          let currentStartTime = window.startTime;
-
-          while (currentStartTime < window.endTime) {
-            const currentEndTime = addMinutesToTime(currentStartTime, slotDuration);
-            if (currentEndTime > window.endTime) break;
-
-            const slotKey = `${currentStartTime}-${currentEndTime}`;
-            const isPast = isSlotInPast(currentDate, currentStartTime);
-            const isBooked = bookedSlots.has(slotKey);
-            const isAfterRequest = !isSameDate || currentStartTime > requestedStartTime;
-
-            if (!isPast && !isBooked && isAfterRequest) {
-              return {
-                date: currentDate.toISOString().split('T')[0],
-                startTime: currentStartTime,
-                endTime: currentEndTime
-              };
-            }
-
-            currentStartTime = addMinutesToTime(currentEndTime, bufferTime);
-          }
-        }
-      } else if (schedulingType === 'WAVE') {
-        for (const window of windows) {
-          const bookedInWave = appointments.filter(
-            a => a.startTime === window.startTime && a.endTime === window.endTime
-          ).length;
-
-          const isPast = isSlotInPast(currentDate, window.startTime);
-          const isAfterRequest = !isSameDate || window.startTime > requestedStartTime;
-
-          if (!isPast && bookedInWave < waveCapacity && isAfterRequest) {
-            return {
-              date: currentDate.toISOString().split('T')[0],
-              startTime: window.startTime,
-              endTime: window.endTime,
-              availableCapacity: waveCapacity - bookedInWave
-            };
-          }
-        }
+  return suggestedSlot && suggestedSlot.slots.length > 0
+    ? {
+        date: suggestedSlot.date,
+        ...suggestedSlot.slots[0]
       }
-
-      if (workingDaysChecked >= searchWindow) {
-        break;
-      }
-    }
-
-    currentDate = new Date(currentDate);
-    currentDate.setDate(currentDate.getDate() + 1);
-    currentDate.setUTCHours(0, 0, 0, 0);
-  }
-
-  return null;
+    : null;
 }
 
 // ════════════════════════════════════════════════════════════
