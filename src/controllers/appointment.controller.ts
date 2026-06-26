@@ -2,7 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { bookAppointmentSchema, rescheduleAppointmentSchema } from '../validators/appointment.validator';
 import prisma from '../lib/prisma';
 import { findNextAvailableSlots, isSlotInPast, addMinutesToTime } from '../services/slot.service';
-import { NotificationType } from '@prisma/client';
+import { notificationService } from '../services/notification.service';
 
 // Helper to get the local Date object for the appointment start time
 function getAppointmentStartDateTime(date: Date, startTime: string): Date {
@@ -40,56 +40,7 @@ async function findNextAvailableSlot(
     : null;
 }
 
-// Format Date to "25 June" format using UTC
-function formatNotificationDate(date: Date): string {
-  const months = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December'
-  ];
-  const day = date.getUTCDate();
-  const month = months[date.getUTCMonth()];
-  return `${day} ${month}`;
-}
 
-// Format 24h Time (e.g. "10:00") to 12h Time (e.g. "10:00 AM" or "2:30 PM")
-function formatNotificationTime(time24: string): string {
-  const [hoursStr, minutesStr] = time24.split(':');
-  const hours = parseInt(hoursStr, 10);
-  const minutes = parseInt(minutesStr, 10);
-  
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  const displayHours = hours % 12 === 0 ? 12 : hours % 12;
-  const displayMinutes = minutes < 10 ? `0${minutes}` : minutes;
-  
-  return `${displayHours}:${displayMinutes} ${ampm}`;
-}
-
-// Deduplicate and create notification
-async function createNotificationIfNotExists(data: {
-  patientId: string;
-  title: string;
-  message: string;
-  type: NotificationType;
-}) {
-  const existing = await prisma.notification.findFirst({
-    where: {
-      patientId: data.patientId,
-      type: data.type,
-      message: data.message
-    }
-  });
-
-  if (!existing) {
-    await prisma.notification.create({
-      data: {
-        patientId: data.patientId,
-        title: data.title,
-        message: data.message,
-        type: data.type
-      }
-    });
-  }
-}
 
 // ════════════════════════════════════════════════════════════
 // PATIENT APPOINTMENT BOOKING
@@ -258,11 +209,11 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
 
     // 6. Create notification for patient
     const doctorDisplayName = doctor.name.toLowerCase().startsWith('dr.') ? doctor.name : `Dr. ${doctor.name}`;
-    const formattedDate = formatNotificationDate(parsedDate);
-    const formattedTime = formatNotificationTime(parsed.startTime);
+    const formattedDate = notificationService.formatDate(parsedDate);
+    const formattedTime = notificationService.formatTime(parsed.startTime);
     const notificationMessage = `Your appointment with ${doctorDisplayName} has been booked successfully for ${formattedDate} at ${formattedTime}.`;
 
-    await createNotificationIfNotExists({
+    await notificationService.create({
       patientId,
       title: 'Appointment Booked',
       message: notificationMessage,
@@ -351,11 +302,11 @@ export const cancelAppointment = async (req: Request, res: Response, next: NextF
     });
 
     // Notify patient about cancellation
-    const formattedDate = formatNotificationDate(appointment.date);
-    const formattedTime = formatNotificationTime(appointment.startTime);
+    const formattedDate = notificationService.formatDate(appointment.date);
+    const formattedTime = notificationService.formatTime(appointment.startTime);
     const notificationMessage = `Your appointment scheduled on ${formattedDate} at ${formattedTime} has been cancelled.`;
 
-    await createNotificationIfNotExists({
+    await notificationService.create({
       patientId: appointment.patientId,
       title: 'Appointment Cancelled',
       message: notificationMessage,
@@ -614,11 +565,11 @@ export const rescheduleAppointment = async (req: Request, res: Response, next: N
     });
 
     // Notify patient about rescheduling
-    const formattedDate = formatNotificationDate(parsedDate);
-    const formattedTime = formatNotificationTime(parsed.startTime);
+    const formattedDate = notificationService.formatDate(parsedDate);
+    const formattedTime = notificationService.formatTime(parsed.startTime);
     const notificationMessage = `Your appointment has been rescheduled to ${formattedDate} at ${formattedTime}.`;
 
-    await createNotificationIfNotExists({
+    await notificationService.create({
       patientId: appointment.patientId,
       title: 'Appointment Rescheduled',
       message: notificationMessage,
@@ -774,11 +725,11 @@ export const doctorCancelAppointment = async (req: Request, res: Response, next:
     });
 
     // Notify patient about cancellation
-    const formattedDate = formatNotificationDate(appointment.date);
-    const formattedTime = formatNotificationTime(appointment.startTime);
+    const formattedDate = notificationService.formatDate(appointment.date);
+    const formattedTime = notificationService.formatTime(appointment.startTime);
     const notificationMessage = `Your appointment scheduled on ${formattedDate} at ${formattedTime} has been cancelled.`;
 
-    await createNotificationIfNotExists({
+    await notificationService.create({
       patientId: appointment.patientId,
       title: 'Appointment Cancelled',
       message: notificationMessage,

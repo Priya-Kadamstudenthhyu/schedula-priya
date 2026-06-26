@@ -1,8 +1,10 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getDoctorById = exports.getDoctors = void 0;
-const client_1 = require("@prisma/client");
-const prisma = new client_1.PrismaClient();
+const prisma_1 = __importDefault(require("../lib/prisma"));
 const getDoctors = async (req, res, next) => {
     try {
         // Parse query parameters
@@ -39,7 +41,7 @@ const getDoctors = async (req, res, next) => {
         }
         // Execute queries in parallel
         const [doctors, total] = await Promise.all([
-            prisma.doctorProfile.findMany({
+            prisma_1.default.doctorProfile.findMany({
                 where: whereClause,
                 skip,
                 take: limit,
@@ -47,7 +49,7 @@ const getDoctors = async (req, res, next) => {
                     createdAt: 'desc'
                 }
             }),
-            prisma.doctorProfile.count({
+            prisma_1.default.doctorProfile.count({
                 where: whereClause
             })
         ]);
@@ -71,7 +73,7 @@ exports.getDoctors = getDoctors;
 const getDoctorById = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const doctor = await prisma.doctorProfile.findUnique({
+        const doctor = await prisma_1.default.doctorProfile.findUnique({
             where: { id: String(id) }
         });
         if (!doctor) {

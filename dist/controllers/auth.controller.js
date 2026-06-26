@@ -4,17 +4,16 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.login = exports.signup = void 0;
-const client_1 = require("@prisma/client");
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const jsonwebtoken_1 = __importDefault(require("jsonwebtoken"));
 const auth_validator_1 = require("../validators/auth.validator");
-const prisma = new client_1.PrismaClient();
+const prisma_1 = __importDefault(require("../lib/prisma"));
 const signup = async (req, res, next) => {
     try {
         // 1. Validate payload
         const validatedData = auth_validator_1.signupSchema.parse(req.body);
         // 2. Check if user already exists
-        const existingUser = await prisma.user.findUnique({
+        const existingUser = await prisma_1.default.user.findUnique({
             where: { email: validatedData.email }
         });
         if (existingUser) {
@@ -24,7 +23,7 @@ const signup = async (req, res, next) => {
         const salt = await bcryptjs_1.default.genSalt(10);
         const hashedPassword = await bcryptjs_1.default.hash(validatedData.password, salt);
         // 4. Create user
-        const user = await prisma.user.create({
+        const user = await prisma_1.default.user.create({
             data: {
                 name: validatedData.name,
                 email: validatedData.email,
@@ -53,7 +52,7 @@ const login = async (req, res, next) => {
         // 1. Validate payload
         const validatedData = auth_validator_1.loginSchema.parse(req.body);
         // 2. Find user
-        const user = await prisma.user.findUnique({
+        const user = await prisma_1.default.user.findUnique({
             where: { email: validatedData.email }
         });
         if (!user) {
