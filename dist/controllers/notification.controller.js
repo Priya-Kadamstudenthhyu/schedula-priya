@@ -3,8 +3,10 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getUnreadCount = exports.markAllAsRead = exports.markAsRead = exports.getNotifications = void 0;
+exports.triggerReminderForAppointment = exports.triggerRemindersBulk = exports.getUnreadCount = exports.markAllAsRead = exports.markAsRead = exports.getNotifications = void 0;
 const prisma_1 = __importDefault(require("../lib/prisma"));
+const notification_service_1 = require("../services/notification.service");
+const reminder_scheduler_1 = require("../services/reminder.scheduler");
 // ════════════════════════════════════════════════════════════
 // GET /api/notifications
 // Patient views all their notifications, latest first
@@ -130,3 +132,135 @@ const getUnreadCount = async (req, res, next) => {
     }
 };
 exports.getUnreadCount = getUnreadCount;
+// ════════════════════════════════════════════════════════════
+// POST /api/notifications/reminders/trigger
+// Triggers reminders for all upcoming appointments today
+// ════════════════════════════════════════════════════════════
+const triggerRemindersBulk = async (req, res, next) => {
+    try {
+        const count = await (0, reminder_scheduler_1.sendAutomatedReminders)();
+        res.status(200).json({
+            success: true,
+            message: 'Automated reminders triggered successfully.',
+            remindersSent: count
+        });
+    }
+    catch (error) {
+        next(error);
+    }
+};
+exports.triggerRemindersBulk = triggerRemindersBulk;
+// ════════════════════════════════════════════════════════════
+// POST /api/notifications/reminders/:appointmentId
+// Trigger reminder for a specific appointment ID
+// ════════════════════════════════════════════════════════════
+const triggerReminderForAppointment = async (req, res, next) => {
+    try {
+        const patientId = req.user.id;
+        const appointmentId = req.params.appointmentId;
+        // 1. UUID validation check (Invalid appointment data)
+        const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        if (!uuidRegex.test(appointmentId)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid appointment data.'
+            });
+        }
+        // 2. Fetch the appointment
+        const appointment = await prisma_1.default.appointment.findUnique({
+            where: { id: appointmentId },
+            include: {
+                doctor: {
+                    include: {
+                        doctorProfile: true
+                    }
+                }
+            }
+        });
+        if (!appointment) {
+            return res.status(404).json({
+                success: false,
+                message: 'Appointment not found.'
+            });
+        }
+        // 3. Authorization check
+        if (appointment.patientId !== patientId) {
+            return res.status(403).json({
+                success: false,
+                message: 'Unauthorized. You can only trigger reminders for your own appointments.'
+            });
+        }
+        // 4. Appointment already cancelled
+        if (appointment.status === 'CANCELLED') {
+            return res.status(400).json({
+                success: false,
+                message: 'Appointment is already cancelled.'
+            });
+        }
+        // 5. Appointment already completed
+        if (appointment.status === 'COMPLETED') {
+            return res.status(400).json({
+                success: false,
+                message: 'Appointment is already completed.'
+            });
+        }
+        // 6. Check if appointment is within reminder window (scheduled for today)
+        const today = new Date();
+        today.setUTCHours(0, 0, 0, 0);
+        const appointmentDate = new Date(appointment.date);
+        appointmentDate.setUTCHours(0, 0, 0, 0);
+        if (appointmentDate.getTime() !== today.getTime()) {
+            return res.status(400).json({
+                success: false,
+                message: 'Appointment is not within the reminder window.'
+            });
+        }
+        // 7. Generate reminder message content
+        const doctorProfile = appointment.doctor.doctorProfile;
+        const schedulingType = doctorProfile?.schedulingType || 'STREAM';
+        const doctorDisplayName = appointment.doctor.name.toLowerCase().startsWith('dr.')
+            ? appointment.doctor.name
+            : `Dr. ${appointment.doctor.name}`;
+        let message = '';
+        if (schedulingType === 'WAVE') {
+            const reportingTime = notification_service_1.notificationService.formatTime(appointment.startTime);
+            const tokenNumber = appointment.tokenNumber ?? 'N/A';
+            message = `Reminder: You have an appointment with ${doctorDisplayName} today.\n\nReporting Time: ${reportingTime}\n\nToken Number: ${tokenNumber}`;
+        }
+        else {
+            const formattedDate = notification_service_1.notificationService.formatDate(appointment.date);
+            const formattedTime = notification_service_1.notificationService.formatTime(appointment.startTime);
+            message = `Reminder: You have an appointment with ${doctorDisplayName} today.\n\nAppointment Date: ${formattedDate}\n\nAppointment Time: ${formattedTime}`;
+        }
+        // 8. Check if reminder already sent
+        const existing = await prisma_1.default.notification.findFirst({
+            where: {
+                patientId: appointment.patientId,
+                type: 'APPOINTMENT_REMINDER',
+                message: message
+            }
+        });
+        if (existing) {
+            return res.status(400).json({
+                success: false,
+                message: 'Reminder already sent.'
+            });
+        }
+        // 9. Create the notification
+        const notification = await notification_service_1.notificationService.create({
+            patientId: appointment.patientId,
+            title: 'Appointment Reminder',
+            message: message,
+            type: 'APPOINTMENT_REMINDER'
+        });
+        res.status(200).json({
+            success: true,
+            message: 'Reminder sent successfully.',
+            data: notification
+        });
+    }
+    catch (error) {
+        next(error);
+    }
+};
+exports.triggerReminderForAppointment = triggerReminderForAppointment;

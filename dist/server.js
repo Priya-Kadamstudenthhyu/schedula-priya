@@ -13,6 +13,7 @@ const availability_routes_1 = __importDefault(require("./routes/availability.rou
 const appointment_routes_1 = __importDefault(require("./routes/appointment.routes"));
 const notification_routes_1 = __importDefault(require("./routes/notification.routes"));
 const error_middleware_1 = require("./middlewares/error.middleware");
+require("./services/reminder.scheduler");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3000;

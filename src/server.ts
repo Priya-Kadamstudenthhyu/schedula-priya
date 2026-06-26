@@ -8,6 +8,7 @@ import availabilityRoutes from './routes/availability.routes';
 import appointmentRoutes from './routes/appointment.routes';
 import notificationRoutes from './routes/notification.routes';
 import { errorHandler } from './middlewares/error.middleware';
+import './services/reminder.scheduler';
 
 dotenv.config();
 
