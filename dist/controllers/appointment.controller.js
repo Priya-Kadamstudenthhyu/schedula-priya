@@ -45,7 +45,22 @@ const bookAppointment = async (req, res, next) => {
         }
         const parsedDate = new Date(parsed.date);
         parsedDate.setUTCHours(0, 0, 0, 0);
-        // 1. Check if Doctor exists
+        // 1. Booking window check — only today's date is allowed
+        const today = new Date();
+        today.setUTCHours(0, 0, 0, 0);
+        if (parsedDate.getTime() < today.getTime()) {
+            return res.status(400).json({
+                success: false,
+                message: 'Cannot book an appointment in the past.'
+            });
+        }
+        if (parsedDate.getTime() > today.getTime()) {
+            return res.status(400).json({
+                success: false,
+                message: 'Booking is only allowed for today. You cannot book for a future date.'
+            });
+        }
+        // 2. Check if Doctor exists
         const doctor = await prisma_1.default.user.findUnique({
             where: { id: parsed.doctorId },
             include: { doctorProfile: true }
@@ -53,7 +68,7 @@ const bookAppointment = async (req, res, next) => {
         if (!doctor || doctor.role !== 'DOCTOR') {
             return res.status(404).json({ success: false, message: 'Doctor not found.' });
         }
-        // 2. Validate past date/time
+        // 3. Validate past time within today
         if ((0, slot_service_1.isSlotInPast)(parsedDate, parsed.startTime)) {
             return res.status(400).json({ success: false, message: 'Cannot book an appointment in the past.' });
         }
