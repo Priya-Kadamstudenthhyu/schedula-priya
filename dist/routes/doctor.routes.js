@@ -16,6 +16,7 @@ router.post('/profile', doctorOnly, profile_controller_1.createDoctorProfile);
 router.get('/profile', doctorOnly, profile_controller_1.getDoctorProfile);
 router.patch('/profile', doctorOnly, profile_controller_1.updateDoctorProfile);
 router.get('/appointments', doctorOnly, appointment_controller_1.getDoctorAppointments);
+router.patch('/appointments/:id/cancel', doctorOnly, appointment_controller_1.doctorCancelAppointment);
 // ==========================================
 // DOCTOR DISCOVERY ROUTES (Open to any logged-in user)
 // ==========================================

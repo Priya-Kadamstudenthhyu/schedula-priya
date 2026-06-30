@@ -11,7 +11,9 @@ const doctor_routes_1 = __importDefault(require("./routes/doctor.routes"));
 const patient_routes_1 = __importDefault(require("./routes/patient.routes"));
 const availability_routes_1 = __importDefault(require("./routes/availability.routes"));
 const appointment_routes_1 = __importDefault(require("./routes/appointment.routes"));
+const notification_routes_1 = __importDefault(require("./routes/notification.routes"));
 const error_middleware_1 = require("./middlewares/error.middleware");
+require("./services/reminder.scheduler");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 3000;
@@ -44,6 +46,7 @@ app.use('/api/doctor/availability', availability_routes_1.default);
 app.use('/api/doctor', doctor_routes_1.default);
 app.use('/api/appointment', appointment_routes_1.default);
 app.use('/api/patient', patient_routes_1.default);
+app.use('/api/notifications', notification_routes_1.default);
 // Global Error Handler
 app.use(error_middleware_1.errorHandler);
 // Start Server

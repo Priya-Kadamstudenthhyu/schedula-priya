@@ -5,7 +5,7 @@ import { getAvailableSlots } from '../controllers/slot.controller';
 import { authenticate } from '../middlewares/auth.middleware';
 import { authorizeRole } from '../middlewares/role.middleware';
 
-import { getDoctorAppointments } from '../controllers/appointment.controller';
+import { getDoctorAppointments, doctorCancelAppointment } from '../controllers/appointment.controller';
 
 const router = Router();
 
@@ -18,6 +18,7 @@ router.post('/profile', doctorOnly, createDoctorProfile);
 router.get('/profile', doctorOnly, getDoctorProfile);
 router.patch('/profile', doctorOnly, updateDoctorProfile);
 router.get('/appointments', doctorOnly, getDoctorAppointments);
+router.patch('/appointments/:id/cancel', doctorOnly, doctorCancelAppointment);
 
 // ==========================================
 // DOCTOR DISCOVERY ROUTES (Open to any logged-in user)

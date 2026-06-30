@@ -1,55 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
-
-const prisma = new PrismaClient();
-
-// Helper to add minutes to a "HH:MM" string
-function addMinutesToTime(time: string, minsToAdd: number): string {
-  const [hoursStr, minsStr] = time.split(':');
-  let hours = parseInt(hoursStr, 10);
-  let mins = parseInt(minsStr, 10);
-
-  mins += minsToAdd;
-  hours += Math.floor(mins / 60);
-  mins = mins % 60;
-
-  const h = hours.toString().padStart(2, '0');
-  const m = mins.toString().padStart(2, '0');
-  return `${h}:${m}`;
-}
-
-// Helper to check if a slot is in the past
-function isSlotInPast(date: Date, slotStartTime: string): boolean {
-  const now = new Date();
-  
-  // If the date is in the past, all slots are in the past
-  if (
-    date.getUTCFullYear() < now.getUTCFullYear() ||
-    (date.getUTCFullYear() === now.getUTCFullYear() && date.getUTCMonth() < now.getUTCMonth()) ||
-    (date.getUTCFullYear() === now.getUTCFullYear() && date.getUTCMonth() === now.getUTCMonth() && date.getUTCDate() < now.getUTCDate())
-  ) {
-    return true;
-  }
-
-  // If the date is today, check the specific time
-  if (
-    date.getUTCFullYear() === now.getUTCFullYear() &&
-    date.getUTCMonth() === now.getUTCMonth() &&
-    date.getUTCDate() === now.getUTCDate()
-  ) {
-    const [slotHours, slotMins] = slotStartTime.split(':').map(Number);
-    // Note: Assuming the local timezone matches UTC for simplicity, 
-    // or use now.getHours() and now.getMinutes() if server time is considered local.
-    // For this internship, we'll use local server time.
-    const currentHours = now.getHours();
-    const currentMins = now.getMinutes();
-    
-    if (slotHours < currentHours) return true;
-    if (slotHours === currentHours && slotMins <= currentMins) return true;
-  }
-
-  return false;
-}
+import prisma from '../lib/prisma';
+import { generateSlotsForDay, findNextAvailableSlots } from '../services/slot.service';
 
 export const getAvailableSlots = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -66,22 +17,19 @@ export const getAvailableSlots = async (req: Request, res: Response, next: NextF
     }
     parsedDate.setUTCHours(0, 0, 0, 0);
 
-    // 1. Check if Doctor exists and get their slotDuration
+    // 1. Check if Doctor exists and get their profile
     const doctor = await prisma.user.findUnique({
       where: { id: doctorId },
       include: { doctorProfile: true },
     });
 
-    if (!doctor || doctor.role !== 'DOCTOR') {
-      return res.status(404).json({ success: false, message: 'Doctor not found.' });
+    if (!doctor || doctor.role !== 'DOCTOR' || !doctor.doctorProfile) {
+      return res.status(404).json({ success: false, message: 'Doctor not found or has no profile.' });
     }
 
-    const schedulingType = doctor.doctorProfile?.schedulingType || 'STREAM';
-    const slotDuration = doctor.doctorProfile?.slotDuration || 15;
-    const bufferTime = doctor.doctorProfile?.bufferTime || 0;
-    const waveCapacity = doctor.doctorProfile?.waveCapacity || 5;
+    const searchWindow = doctor.doctorProfile.searchWindow || 30;
 
-    // 2. Fetch Appointments for that date (to filter booked slots or calculate wave capacity)
+    // 2. Fetch Appointments for that date
     const appointments = await prisma.appointment.findMany({
       where: {
         doctorId,
@@ -111,77 +59,48 @@ export const getAvailableSlots = async (req: Request, res: Response, next: NextF
       availableWindows = recurringAvailability;
     }
 
-    if (availableWindows.length === 0) {
-      return res.status(200).json({
-        success: true,
-        message: 'Doctor is not available on this date.',
-        slots: []
-      });
-    }
+    // 4. Generate Slots using the shared service
+    const generatedSlots = generateSlotsForDay(
+      parsedDate,
+      availableWindows,
+      appointments,
+      doctor.doctorProfile
+    );
 
-    // 4. Generate Slots based on Scheduling Type
-    const generatedSlots = [];
+    // 5. Evaluate availability and trigger Next Available search if empty
+    let slotsToReturn = generatedSlots;
+    let nextAvailableDate = date.split('T')[0];
+    let nextAvailableSearchExecuted = false;
 
-    if (schedulingType === 'STREAM') {
-      const bookedSlots = new Set(appointments.map(a => `${a.startTime}-${a.endTime}`));
+    if (availableWindows.length === 0 || generatedSlots.length === 0) {
+      nextAvailableSearchExecuted = true;
+      
+      // Pass the date after the requested date to start searching
+      const nextDay = new Date(parsedDate);
+      nextDay.setDate(nextDay.getDate() + 1);
+      
+      const nextDayResult = await findNextAvailableSlots(doctorId, nextDay);
 
-      for (const window of availableWindows) {
-        let currentStartTime = window.startTime;
-
-        while (currentStartTime < window.endTime) {
-          const currentEndTime = addMinutesToTime(currentStartTime, slotDuration);
-          
-          if (currentEndTime > window.endTime) break;
-
-          const slotKey = `${currentStartTime}-${currentEndTime}`;
-          const isPast = isSlotInPast(parsedDate, currentStartTime);
-          const isBooked = bookedSlots.has(slotKey);
-
-          if (!isPast && !isBooked) {
-            generatedSlots.push({
-              startTime: currentStartTime,
-              endTime: currentEndTime,
-            });
-          }
-
-          // Add buffer time for the next slot
-          currentStartTime = addMinutesToTime(currentEndTime, bufferTime);
-        }
+      if (!nextDayResult) {
+        return res.status(200).json({
+          success: true,
+          message: `Requested date is unavailable. No appointments available in the next ${searchWindow} working days. Please try again later.`,
+          slots: []
+        });
       }
-    } else if (schedulingType === 'WAVE') {
-      for (const window of availableWindows) {
-        // Find appointments booked exactly for this wave window
-        const bookedInWave = appointments.filter(
-          a => a.startTime === window.startTime && a.endTime === window.endTime
-        ).length;
 
-        const isPast = isSlotInPast(parsedDate, window.startTime);
-        
-        if (!isPast) {
-          generatedSlots.push({
-            timeWindow: `${window.startTime} - ${window.endTime}`,
-            startTime: window.startTime,
-            endTime: window.endTime,
-            available: `${waveCapacity - bookedInWave}/${waveCapacity}`,
-            isFull: bookedInWave >= waveCapacity
-          });
-        }
-      }
-    }
-
-    if (generatedSlots.length === 0) {
-      return res.status(200).json({
-        success: true,
-        message: 'No slots available for this date.',
-        slots: []
-      });
+      nextAvailableDate = nextDayResult.date;
+      slotsToReturn = nextDayResult.slots;
     }
 
     res.status(200).json({
       success: true,
-      message: 'Available slots fetched successfully.',
-      schedulingType,
-      slots: generatedSlots,
+      message: nextAvailableSearchExecuted
+        ? `Requested date is unavailable. Showing next available date: ${nextAvailableDate}`
+        : 'Available slots fetched successfully.',
+      nextAvailableDate,
+      schedulingType: doctor.doctorProfile.schedulingType,
+      slots: slotsToReturn
     });
 
   } catch (error) {

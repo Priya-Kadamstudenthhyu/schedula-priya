@@ -1,13 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
-import { PrismaClient } from '@prisma/client';
 import {
   doctorProfileSchema,
   updateDoctorProfileSchema,
   patientProfileSchema,
   updatePatientProfileSchema
 } from '../validators/profile.validator';
-
-const prisma = new PrismaClient();
+import prisma from '../lib/prisma';
 
 // =======================
 // DOCTOR PROFILE HANDLERS
