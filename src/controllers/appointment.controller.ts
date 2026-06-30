@@ -81,6 +81,34 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
       });
     }
 
+    // Determine current request local time (timezone-aware)
+    const now = new Date();
+    let currentHours = now.getHours();
+    let currentMins = now.getMinutes();
+
+    const timezoneOffsetHeader = req.headers['x-timezone-offset'] || req.headers['timezone-offset'];
+    if (timezoneOffsetHeader) {
+      const offsetMinutes = parseInt(timezoneOffsetHeader as string, 10);
+      if (!isNaN(offsetMinutes)) {
+        // offsetMinutes = UTC - Local => Local = UTC - offsetMinutes
+        const localTime = new Date(now.getTime() - offsetMinutes * 60 * 1000);
+        currentHours = localTime.getUTCHours();
+        currentMins = localTime.getUTCMinutes();
+      }
+    }
+
+    const currentMinutesFromMidnight = currentHours * 60 + currentMins;
+
+    // Validate past time within today
+    const [slotHours, slotMins] = parsed.startTime.split(':').map(Number);
+    const slotTotalMinutes = slotHours * 60 + slotMins;
+    if (currentMinutesFromMidnight > slotTotalMinutes) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cannot book an appointment in the past.'
+      });
+    }
+
     // 2. Check if Doctor exists
     const doctor = await prisma.user.findUnique({
       where: { id: parsed.doctorId },
@@ -89,11 +117,6 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
 
     if (!doctor || doctor.role !== 'DOCTOR') {
       return res.status(404).json({ success: false, message: 'Doctor not found.' });
-    }
-
-    // 3. Validate past time within today
-    if (isSlotInPast(parsedDate, parsed.startTime)) {
-      return res.status(400).json({ success: false, message: 'Cannot book an appointment in the past.' });
     }
 
     // 3. Resolve Availability (Custom Override > Recurring)
@@ -126,6 +149,69 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
         success: false,
         message: 'Doctor is not available on this date.',
         suggestedSlot
+      });
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // BOOKING WINDOW VALIDATION (Iteration 2)
+    // ════════════════════════════════════════════════════════════
+    let minStartMinutes = 24 * 60;
+    let maxEndMinutes = 0;
+    let minStartStr = '';
+    let maxEndStr = '';
+
+    for (const window of availableWindows) {
+      const [sH, sM] = window.startTime.split(':').map(Number);
+      const [eH, eM] = window.endTime.split(':').map(Number);
+      const startMins = sH * 60 + sM;
+      const endMins = eH * 60 + eM;
+
+      if (startMins < minStartMinutes) {
+        minStartMinutes = startMins;
+        minStartStr = window.startTime;
+      }
+      if (endMins > maxEndMinutes) {
+        maxEndMinutes = endMins;
+        maxEndStr = window.endTime;
+      }
+    }
+
+    // Handle invalid consultation timings edge case
+    if (minStartMinutes >= maxEndMinutes) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid consultation timings.'
+      });
+    }
+
+    const bookingWindowOpenMinutes = minStartMinutes - 120; // 2 hours before
+    const bookingWindowCloseMinutes = maxEndMinutes - 60;   // 1 hour before
+
+    // Format minutes to AM/PM string helper
+    const formatMinutesTo12h = (totalMinutes: number): string => {
+      let mins = totalMinutes;
+      if (mins < 0) mins += 1440;
+      mins = mins % 1440;
+      const hours = Math.floor(mins / 60);
+      const minutes = mins % 60;
+      const ampm = hours >= 12 ? 'PM' : 'AM';
+      const displayHours = hours % 12 === 0 ? 12 : hours % 12;
+      const displayHoursStr = displayHours.toString().padStart(2, '0');
+      const displayMinutes = minutes < 10 ? `0${minutes}` : minutes;
+      return `${displayHoursStr}:${displayMinutes} ${ampm}`;
+    };
+
+    if (currentMinutesFromMidnight < bookingWindowOpenMinutes) {
+      return res.status(400).json({
+        success: false,
+        message: `Booking has not opened yet. For today's schedule (${minStartStr} - ${maxEndStr}), booking opens at ${formatMinutesTo12h(bookingWindowOpenMinutes)}.`
+      });
+    }
+
+    if (currentMinutesFromMidnight > bookingWindowCloseMinutes) {
+      return res.status(400).json({
+        success: false,
+        message: `Booking has closed for today. Booking closed at ${formatMinutesTo12h(bookingWindowCloseMinutes)}.`
       });
     }
 
