@@ -95,6 +95,28 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
         currentHours = localTime.getUTCHours();
         currentMins = localTime.getUTCMinutes();
       }
+    } else {
+      // Fallback: If no header is provided, convert the UTC date to Indian Standard Time (IST, Asia/Kolkata)
+      try {
+        const options: Intl.DateTimeFormatOptions = {
+          timeZone: 'Asia/Kolkata',
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        };
+        const formatter = new Intl.DateTimeFormat('en-US', options);
+        const parts = formatter.formatToParts(now);
+        const hPart = parts.find(p => p.type === 'hour');
+        const mPart = parts.find(p => p.type === 'minute');
+        if (hPart && mPart) {
+          currentHours = parseInt(hPart.value, 10);
+          currentMins = parseInt(mPart.value, 10);
+        }
+      } catch (err) {
+        // Fallback to system local time
+        currentHours = now.getHours();
+        currentMins = now.getMinutes();
+      }
     }
 
     const currentMinutesFromMidnight = currentHours * 60 + currentMins;
