@@ -63,7 +63,7 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
     const parsedDate = new Date(parsed.date);
     parsedDate.setUTCHours(0, 0, 0, 0);
 
-    // 1. Booking window check — only today's date is allowed
+    // 1. Reject past dates immediately (before any DB queries)
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
 
@@ -71,13 +71,6 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
       return res.status(400).json({
         success: false,
         message: 'Cannot book an appointment in the past.'
-      });
-    }
-
-    if (parsedDate.getTime() > today.getTime()) {
-      return res.status(400).json({
-        success: false,
-        message: 'Booking is only allowed for today. You cannot book for a future date.'
       });
     }
 
@@ -91,10 +84,90 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
       return res.status(404).json({ success: false, message: 'Doctor not found.' });
     }
 
-    // 3. Validate past time within today
-    if (isSlotInPast(parsedDate, parsed.startTime)) {
-      return res.status(400).json({ success: false, message: 'Cannot book an appointment in the past.' });
+    // 3. Doctor future booking configuration check
+    const allowFutureBooking = doctor.doctorProfile?.allowFutureBooking ?? false;
+    const maxFutureBookingDays = doctor.doctorProfile?.maxFutureBookingDays ?? null;
+    const isToday = parsedDate.getTime() === today.getTime();
+
+    if (!isToday) {
+      // Future date requested
+      if (!allowFutureBooking) {
+        return res.status(400).json({
+          success: false,
+          message: 'This doctor only accepts same-day bookings. Please book for today.'
+        });
+      }
+
+      const maxDays = (maxFutureBookingDays !== null && maxFutureBookingDays !== undefined)
+        ? maxFutureBookingDays
+        : 7; // Default 7 days
+
+      const maxAllowedDate = new Date(today);
+      maxAllowedDate.setUTCDate(today.getUTCDate() + maxDays);
+
+      if (parsedDate.getTime() > maxAllowedDate.getTime()) {
+        // Format maxAllowedDate as YYYY-MM-DD
+        const yyyy = maxAllowedDate.getUTCFullYear();
+        const mm = String(maxAllowedDate.getUTCMonth() + 1).padStart(2, '0');
+        const dd = String(maxAllowedDate.getUTCDate()).padStart(2, '0');
+        const lastAllowedStr = `${yyyy}-${mm}-${dd}`;
+        return res.status(400).json({
+          success: false,
+          message: `Booking is only allowed up to ${maxDays} day(s) in advance. Last allowed date is ${lastAllowedStr}.`
+        });
+      }
     }
+
+    // 4. Determine current request local time (timezone-aware) — only needed for TODAY's booking window check
+    if (isToday) {
+      const now = new Date();
+      let currentHours = now.getHours();
+      let currentMins = now.getMinutes();
+
+      const timezoneOffsetHeader = req.headers['x-timezone-offset'] || req.headers['timezone-offset'];
+      if (timezoneOffsetHeader) {
+        const offsetMinutes = parseInt(timezoneOffsetHeader as string, 10);
+        if (!isNaN(offsetMinutes)) {
+          const localTime = new Date(now.getTime() - offsetMinutes * 60 * 1000);
+          currentHours = localTime.getUTCHours();
+          currentMins = localTime.getUTCMinutes();
+        }
+      } else {
+        // Fallback: Use IST (Asia/Kolkata) when no header is provided
+        try {
+          const options: Intl.DateTimeFormatOptions = {
+            timeZone: 'Asia/Kolkata',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+          };
+          const formatter = new Intl.DateTimeFormat('en-US', options);
+          const parts = formatter.formatToParts(now);
+          const hPart = parts.find(p => p.type === 'hour');
+          const mPart = parts.find(p => p.type === 'minute');
+          if (hPart && mPart) {
+            currentHours = parseInt(hPart.value, 10);
+            currentMins = parseInt(mPart.value, 10);
+          }
+        } catch (err) {
+          currentHours = now.getHours();
+          currentMins = now.getMinutes();
+        }
+      }
+
+      const currentMinutesFromMidnight = currentHours * 60 + currentMins;
+
+      // Validate slot is not in the past within today
+      const [slotHours, slotMins] = parsed.startTime.split(':').map(Number);
+      const slotTotalMinutes = slotHours * 60 + slotMins;
+      if (currentMinutesFromMidnight > slotTotalMinutes) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot book an appointment in the past.'
+        });
+      }
+    }
+
 
     // 3. Resolve Availability (Custom Override > Recurring)
     const schedulingType = doctor.doctorProfile?.schedulingType || 'STREAM';
@@ -127,6 +200,75 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
         message: 'Doctor is not available on this date.',
         suggestedSlot
       });
+    }
+
+    // ════════════════════════════════════════════════════════════
+    // BOOKING WINDOW VALIDATION (Day 19) — today only
+    // ════════════════════════════════════════════════════════════
+    if (isToday && availableWindows.length > 0) {
+      let minStartMinutes = 24 * 60;
+      let maxEndMinutes = 0;
+      let minStartStr = '';
+      let maxEndStr = '';
+
+      for (const window of availableWindows) {
+        const [sH, sM] = window.startTime.split(':').map(Number);
+        const [eH, eM] = window.endTime.split(':').map(Number);
+        const startMins = sH * 60 + sM;
+        const endMins = eH * 60 + eM;
+        if (startMins < minStartMinutes) { minStartMinutes = startMins; minStartStr = window.startTime; }
+        if (endMins > maxEndMinutes) { maxEndMinutes = endMins; maxEndStr = window.endTime; }
+      }
+
+      if (minStartMinutes < maxEndMinutes) {
+        const bookingWindowOpenMinutes  = minStartMinutes - 120;
+        const bookingWindowCloseMinutes = maxEndMinutes   - 60;
+
+        const formatMinutesTo12h = (totalMinutes: number): string => {
+          let m = totalMinutes < 0 ? totalMinutes + 1440 : totalMinutes % 1440;
+          const h = Math.floor(m / 60);
+          const min = m % 60;
+          const ampm = h >= 12 ? 'PM' : 'AM';
+          const dh = (h % 12 === 0 ? 12 : h % 12).toString().padStart(2, '0');
+          const dm = min < 10 ? `0${min}` : min;
+          return `${dh}:${dm} ${ampm}`;
+        };
+
+        // Get current local time in minutes (same IST logic, re-derived here)
+        const nowW = new Date();
+        let curH = nowW.getHours();
+        let curM = nowW.getMinutes();
+        const tzHdr = req.headers['x-timezone-offset'] || req.headers['timezone-offset'];
+        if (tzHdr) {
+          const off = parseInt(tzHdr as string, 10);
+          if (!isNaN(off)) {
+            const lt = new Date(nowW.getTime() - off * 60 * 1000);
+            curH = lt.getUTCHours(); curM = lt.getUTCMinutes();
+          }
+        } else {
+          try {
+            const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
+            const parts = fmt.formatToParts(nowW);
+            const hp = parts.find(p => p.type === 'hour');
+            const mp = parts.find(p => p.type === 'minute');
+            if (hp && mp) { curH = parseInt(hp.value, 10); curM = parseInt(mp.value, 10); }
+          } catch { /* fallback to system time */ }
+        }
+        const curMins = curH * 60 + curM;
+
+        if (curMins < bookingWindowOpenMinutes) {
+          return res.status(400).json({
+            success: false,
+            message: `Booking has not opened yet. For today's schedule (${minStartStr} - ${maxEndStr}), booking opens at ${formatMinutesTo12h(bookingWindowOpenMinutes)}.`
+          });
+        }
+        if (curMins > bookingWindowCloseMinutes) {
+          return res.status(400).json({
+            success: false,
+            message: `Booking has closed for today. Booking closed at ${formatMinutesTo12h(bookingWindowCloseMinutes)}.`
+          });
+        }
+      }
     }
 
     let assignedToken: number | null = null;
