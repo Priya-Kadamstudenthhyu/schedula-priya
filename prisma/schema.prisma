@@ -35,23 +35,25 @@ model User {
 }
 
 model DoctorProfile {
-  id              String         @id @default(uuid())
-  userId          String         @unique
-  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  fullName        String
-  specialization  String
-  experience      Int
-  qualification   String
-  consultationFee Int
-  slotDuration    Int            @default(15) // Configurable slot duration in minutes
-  schedulingType  SchedulingType @default(STREAM)
-  bufferTime      Int            @default(0)  // Buffer time between slots (STREAM)
-  waveCapacity    Int            @default(5)  // Max patients per wave (WAVE)
-  searchWindow    Int            @default(30) // Max working days to search for next available slot
-  availability    String
-  isAvailable     Boolean        @default(true)
-  createdAt       DateTime       @default(now())
-  updatedAt       DateTime       @updatedAt
+  id                   String         @id @default(uuid())
+  userId               String         @unique
+  user                 User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fullName             String
+  specialization       String
+  experience           Int
+  qualification        String
+  consultationFee      Int
+  slotDuration         Int            @default(15) // Configurable slot duration in minutes
+  schedulingType       SchedulingType @default(STREAM)
+  bufferTime           Int            @default(0)  // Buffer time between slots (STREAM)
+  waveCapacity         Int            @default(5)  // Max patients per wave (WAVE)
+  searchWindow         Int            @default(30) // Max working days to search for next available slot
+  allowFutureBooking   Boolean        @default(false) // If true, patients can book future appointments
+  maxFutureBookingDays Int?                           // Max days ahead; null = default 7 days
+  availability         String
+  isAvailable          Boolean        @default(true)
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
 }
 
 model PatientProfile {

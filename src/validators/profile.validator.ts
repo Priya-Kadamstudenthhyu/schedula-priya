@@ -10,7 +10,9 @@ export const doctorProfileSchema = z.object({
   slotDuration: z.number().int().min(5).optional(),
   schedulingType: z.enum(['STREAM', 'WAVE']).optional(),
   bufferTime: z.number().int().min(0).optional(),
-  waveCapacity: z.number().int().min(1).optional()
+  waveCapacity: z.number().int().min(1).optional(),
+  allowFutureBooking: z.boolean().optional(),
+  maxFutureBookingDays: z.number().int().min(1, "maxFutureBookingDays must be at least 1").nullable().optional()
 });
 
 export const updateDoctorProfileSchema = doctorProfileSchema.partial();

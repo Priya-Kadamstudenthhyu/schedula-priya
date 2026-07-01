@@ -12,7 +12,9 @@ exports.doctorProfileSchema = zod_1.z.object({
     slotDuration: zod_1.z.number().int().min(5).optional(),
     schedulingType: zod_1.z.enum(['STREAM', 'WAVE']).optional(),
     bufferTime: zod_1.z.number().int().min(0).optional(),
-    waveCapacity: zod_1.z.number().int().min(1).optional()
+    waveCapacity: zod_1.z.number().int().min(1).optional(),
+    allowFutureBooking: zod_1.z.boolean().optional(),
+    maxFutureBookingDays: zod_1.z.number().int().min(1, "maxFutureBookingDays must be at least 1").nullable().optional()
 });
 exports.updateDoctorProfileSchema = exports.doctorProfileSchema.partial();
 exports.patientProfileSchema = zod_1.z.object({

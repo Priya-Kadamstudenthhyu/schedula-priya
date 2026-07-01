@@ -45,64 +45,10 @@ const bookAppointment = async (req, res, next) => {
         }
         const parsedDate = new Date(parsed.date);
         parsedDate.setUTCHours(0, 0, 0, 0);
-        // 1. Booking window check — only today's date is allowed
+        // 1. Reject past dates immediately (before any DB queries)
         const today = new Date();
         today.setUTCHours(0, 0, 0, 0);
         if (parsedDate.getTime() < today.getTime()) {
-            return res.status(400).json({
-                success: false,
-                message: 'Cannot book an appointment in the past.'
-            });
-        }
-        if (parsedDate.getTime() > today.getTime()) {
-            return res.status(400).json({
-                success: false,
-                message: 'Booking is only allowed for today. You cannot book for a future date.'
-            });
-        }
-        // Determine current request local time (timezone-aware)
-        const now = new Date();
-        let currentHours = now.getHours();
-        let currentMins = now.getMinutes();
-        const timezoneOffsetHeader = req.headers['x-timezone-offset'] || req.headers['timezone-offset'];
-        if (timezoneOffsetHeader) {
-            const offsetMinutes = parseInt(timezoneOffsetHeader, 10);
-            if (!isNaN(offsetMinutes)) {
-                // offsetMinutes = UTC - Local => Local = UTC - offsetMinutes
-                const localTime = new Date(now.getTime() - offsetMinutes * 60 * 1000);
-                currentHours = localTime.getUTCHours();
-                currentMins = localTime.getUTCMinutes();
-            }
-        }
-        else {
-            // Fallback: If no header is provided, convert the UTC date to Indian Standard Time (IST, Asia/Kolkata)
-            try {
-                const options = {
-                    timeZone: 'Asia/Kolkata',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false
-                };
-                const formatter = new Intl.DateTimeFormat('en-US', options);
-                const parts = formatter.formatToParts(now);
-                const hPart = parts.find(p => p.type === 'hour');
-                const mPart = parts.find(p => p.type === 'minute');
-                if (hPart && mPart) {
-                    currentHours = parseInt(hPart.value, 10);
-                    currentMins = parseInt(mPart.value, 10);
-                }
-            }
-            catch (err) {
-                // Fallback to system local time
-                currentHours = now.getHours();
-                currentMins = now.getMinutes();
-            }
-        }
-        const currentMinutesFromMidnight = currentHours * 60 + currentMins;
-        // Validate past time within today
-        const [slotHours, slotMins] = parsed.startTime.split(':').map(Number);
-        const slotTotalMinutes = slotHours * 60 + slotMins;
-        if (currentMinutesFromMidnight > slotTotalMinutes) {
             return res.status(400).json({
                 success: false,
                 message: 'Cannot book an appointment in the past.'
@@ -115,6 +61,83 @@ const bookAppointment = async (req, res, next) => {
         });
         if (!doctor || doctor.role !== 'DOCTOR') {
             return res.status(404).json({ success: false, message: 'Doctor not found.' });
+        }
+        // 3. Doctor future booking configuration check
+        const allowFutureBooking = doctor.doctorProfile?.allowFutureBooking ?? false;
+        const maxFutureBookingDays = doctor.doctorProfile?.maxFutureBookingDays ?? null;
+        const isToday = parsedDate.getTime() === today.getTime();
+        if (!isToday) {
+            // Future date requested
+            if (!allowFutureBooking) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'This doctor only accepts same-day bookings. Please book for today.'
+                });
+            }
+            const maxDays = (maxFutureBookingDays !== null && maxFutureBookingDays !== undefined)
+                ? maxFutureBookingDays
+                : 7; // Default 7 days
+            const maxAllowedDate = new Date(today);
+            maxAllowedDate.setUTCDate(today.getUTCDate() + maxDays);
+            if (parsedDate.getTime() > maxAllowedDate.getTime()) {
+                // Format maxAllowedDate as YYYY-MM-DD
+                const yyyy = maxAllowedDate.getUTCFullYear();
+                const mm = String(maxAllowedDate.getUTCMonth() + 1).padStart(2, '0');
+                const dd = String(maxAllowedDate.getUTCDate()).padStart(2, '0');
+                const lastAllowedStr = `${yyyy}-${mm}-${dd}`;
+                return res.status(400).json({
+                    success: false,
+                    message: `Booking is only allowed up to ${maxDays} day(s) in advance. Last allowed date is ${lastAllowedStr}.`
+                });
+            }
+        }
+        // 4. Determine current request local time (timezone-aware) — only needed for TODAY's booking window check
+        if (isToday) {
+            const now = new Date();
+            let currentHours = now.getHours();
+            let currentMins = now.getMinutes();
+            const timezoneOffsetHeader = req.headers['x-timezone-offset'] || req.headers['timezone-offset'];
+            if (timezoneOffsetHeader) {
+                const offsetMinutes = parseInt(timezoneOffsetHeader, 10);
+                if (!isNaN(offsetMinutes)) {
+                    const localTime = new Date(now.getTime() - offsetMinutes * 60 * 1000);
+                    currentHours = localTime.getUTCHours();
+                    currentMins = localTime.getUTCMinutes();
+                }
+            }
+            else {
+                // Fallback: Use IST (Asia/Kolkata) when no header is provided
+                try {
+                    const options = {
+                        timeZone: 'Asia/Kolkata',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                        hour12: false
+                    };
+                    const formatter = new Intl.DateTimeFormat('en-US', options);
+                    const parts = formatter.formatToParts(now);
+                    const hPart = parts.find(p => p.type === 'hour');
+                    const mPart = parts.find(p => p.type === 'minute');
+                    if (hPart && mPart) {
+                        currentHours = parseInt(hPart.value, 10);
+                        currentMins = parseInt(mPart.value, 10);
+                    }
+                }
+                catch (err) {
+                    currentHours = now.getHours();
+                    currentMins = now.getMinutes();
+                }
+            }
+            const currentMinutesFromMidnight = currentHours * 60 + currentMins;
+            // Validate slot is not in the past within today
+            const [slotHours, slotMins] = parsed.startTime.split(':').map(Number);
+            const slotTotalMinutes = slotHours * 60 + slotMins;
+            if (currentMinutesFromMidnight > slotTotalMinutes) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Cannot book an appointment in the past.'
+                });
+            }
         }
         // 3. Resolve Availability (Custom Override > Recurring)
         const schedulingType = doctor.doctorProfile?.schedulingType || 'STREAM';
@@ -147,60 +170,79 @@ const bookAppointment = async (req, res, next) => {
             });
         }
         // ════════════════════════════════════════════════════════════
-        // BOOKING WINDOW VALIDATION (Iteration 2)
+        // BOOKING WINDOW VALIDATION (Day 19) — today only
         // ════════════════════════════════════════════════════════════
-        let minStartMinutes = 24 * 60;
-        let maxEndMinutes = 0;
-        let minStartStr = '';
-        let maxEndStr = '';
-        for (const window of availableWindows) {
-            const [sH, sM] = window.startTime.split(':').map(Number);
-            const [eH, eM] = window.endTime.split(':').map(Number);
-            const startMins = sH * 60 + sM;
-            const endMins = eH * 60 + eM;
-            if (startMins < minStartMinutes) {
-                minStartMinutes = startMins;
-                minStartStr = window.startTime;
+        if (isToday && availableWindows.length > 0) {
+            let minStartMinutes = 24 * 60;
+            let maxEndMinutes = 0;
+            let minStartStr = '';
+            let maxEndStr = '';
+            for (const window of availableWindows) {
+                const [sH, sM] = window.startTime.split(':').map(Number);
+                const [eH, eM] = window.endTime.split(':').map(Number);
+                const startMins = sH * 60 + sM;
+                const endMins = eH * 60 + eM;
+                if (startMins < minStartMinutes) {
+                    minStartMinutes = startMins;
+                    minStartStr = window.startTime;
+                }
+                if (endMins > maxEndMinutes) {
+                    maxEndMinutes = endMins;
+                    maxEndStr = window.endTime;
+                }
             }
-            if (endMins > maxEndMinutes) {
-                maxEndMinutes = endMins;
-                maxEndStr = window.endTime;
+            if (minStartMinutes < maxEndMinutes) {
+                const bookingWindowOpenMinutes = minStartMinutes - 120;
+                const bookingWindowCloseMinutes = maxEndMinutes - 60;
+                const formatMinutesTo12h = (totalMinutes) => {
+                    let m = totalMinutes < 0 ? totalMinutes + 1440 : totalMinutes % 1440;
+                    const h = Math.floor(m / 60);
+                    const min = m % 60;
+                    const ampm = h >= 12 ? 'PM' : 'AM';
+                    const dh = (h % 12 === 0 ? 12 : h % 12).toString().padStart(2, '0');
+                    const dm = min < 10 ? `0${min}` : min;
+                    return `${dh}:${dm} ${ampm}`;
+                };
+                // Get current local time in minutes (same IST logic, re-derived here)
+                const nowW = new Date();
+                let curH = nowW.getHours();
+                let curM = nowW.getMinutes();
+                const tzHdr = req.headers['x-timezone-offset'] || req.headers['timezone-offset'];
+                if (tzHdr) {
+                    const off = parseInt(tzHdr, 10);
+                    if (!isNaN(off)) {
+                        const lt = new Date(nowW.getTime() - off * 60 * 1000);
+                        curH = lt.getUTCHours();
+                        curM = lt.getUTCMinutes();
+                    }
+                }
+                else {
+                    try {
+                        const fmt = new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: false });
+                        const parts = fmt.formatToParts(nowW);
+                        const hp = parts.find(p => p.type === 'hour');
+                        const mp = parts.find(p => p.type === 'minute');
+                        if (hp && mp) {
+                            curH = parseInt(hp.value, 10);
+                            curM = parseInt(mp.value, 10);
+                        }
+                    }
+                    catch { /* fallback to system time */ }
+                }
+                const curMins = curH * 60 + curM;
+                if (curMins < bookingWindowOpenMinutes) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Booking has not opened yet. For today's schedule (${minStartStr} - ${maxEndStr}), booking opens at ${formatMinutesTo12h(bookingWindowOpenMinutes)}.`
+                    });
+                }
+                if (curMins > bookingWindowCloseMinutes) {
+                    return res.status(400).json({
+                        success: false,
+                        message: `Booking has closed for today. Booking closed at ${formatMinutesTo12h(bookingWindowCloseMinutes)}.`
+                    });
+                }
             }
-        }
-        // Handle invalid consultation timings edge case
-        if (minStartMinutes >= maxEndMinutes) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid consultation timings.'
-            });
-        }
-        const bookingWindowOpenMinutes = minStartMinutes - 120; // 2 hours before
-        const bookingWindowCloseMinutes = maxEndMinutes - 60; // 1 hour before
-        // Format minutes to AM/PM string helper
-        const formatMinutesTo12h = (totalMinutes) => {
-            let mins = totalMinutes;
-            if (mins < 0)
-                mins += 1440;
-            mins = mins % 1440;
-            const hours = Math.floor(mins / 60);
-            const minutes = mins % 60;
-            const ampm = hours >= 12 ? 'PM' : 'AM';
-            const displayHours = hours % 12 === 0 ? 12 : hours % 12;
-            const displayHoursStr = displayHours.toString().padStart(2, '0');
-            const displayMinutes = minutes < 10 ? `0${minutes}` : minutes;
-            return `${displayHoursStr}:${displayMinutes} ${ampm}`;
-        };
-        if (currentMinutesFromMidnight < bookingWindowOpenMinutes) {
-            return res.status(400).json({
-                success: false,
-                message: `Booking has not opened yet. For today's schedule (${minStartStr} - ${maxEndStr}), booking opens at ${formatMinutesTo12h(bookingWindowOpenMinutes)}.`
-            });
-        }
-        if (currentMinutesFromMidnight > bookingWindowCloseMinutes) {
-            return res.status(400).json({
-                success: false,
-                message: `Booking has closed for today. Booking closed at ${formatMinutesTo12h(bookingWindowCloseMinutes)}.`
-            });
         }
         let assignedToken = null;
         if (schedulingType === 'STREAM') {
