@@ -7,6 +7,7 @@ import patientRoutes from './routes/patient.routes';
 import availabilityRoutes from './routes/availability.routes';
 import appointmentRoutes from './routes/appointment.routes';
 import notificationRoutes from './routes/notification.routes';
+import leaveRoutes from './routes/leave.routes';
 import { errorHandler } from './middlewares/error.middleware';
 import './services/reminder.scheduler';
 
@@ -44,6 +45,7 @@ app.get('/api/health', (req, res) => {
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/doctor/availability', availabilityRoutes);
+app.use('/api/doctor/leave', leaveRoutes);
 app.use('/api/doctor', doctorRoutes);
 app.use('/api/appointment', appointmentRoutes);
 app.use('/api/patient', patientRoutes);

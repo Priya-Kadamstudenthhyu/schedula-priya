@@ -168,6 +168,16 @@ export const bookAppointment = async (req: Request, res: Response, next: NextFun
       }
     }
 
+    // 2.5 Check if doctor is on leave on this date
+    const leaveRecord = await prisma.doctorLeave.findFirst({
+      where: { doctorId: parsed.doctorId, date: parsedDate }
+    });
+    if (leaveRecord) {
+      return res.status(400).json({
+        success: false,
+        message: 'Doctor is on leave on this date. Please select another available date.'
+      });
+    }
 
     // 3. Resolve Availability (Custom Override > Recurring)
     const schedulingType = doctor.doctorProfile?.schedulingType || 'STREAM';

@@ -12,6 +12,7 @@ const patient_routes_1 = __importDefault(require("./routes/patient.routes"));
 const availability_routes_1 = __importDefault(require("./routes/availability.routes"));
 const appointment_routes_1 = __importDefault(require("./routes/appointment.routes"));
 const notification_routes_1 = __importDefault(require("./routes/notification.routes"));
+const leave_routes_1 = __importDefault(require("./routes/leave.routes"));
 const error_middleware_1 = require("./middlewares/error.middleware");
 require("./services/reminder.scheduler");
 dotenv_1.default.config();
@@ -43,6 +44,7 @@ app.get('/api/health', (req, res) => {
 // Routes
 app.use('/api/auth', auth_routes_1.default);
 app.use('/api/doctor/availability', availability_routes_1.default);
+app.use('/api/doctor/leave', leave_routes_1.default);
 app.use('/api/doctor', doctor_routes_1.default);
 app.use('/api/appointment', appointment_routes_1.default);
 app.use('/api/patient', patient_routes_1.default);

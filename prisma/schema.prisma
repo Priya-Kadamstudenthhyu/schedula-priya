@@ -32,6 +32,7 @@ model User {
   doctorAppointments    Appointment[]           @relation("DoctorAppointments")
   patientAppointments   Appointment[]           @relation("PatientAppointments")
   patientNotifications  Notification[]          @relation("PatientNotifications")
+  doctorLeaves          DoctorLeave[]           @relation("DoctorLeaves")
 }
 
 model DoctorProfile {
@@ -139,4 +140,16 @@ model Notification {
   type      NotificationType
   isRead    Boolean          @default(false)
   createdAt DateTime         @default(now())
+}
+
+model DoctorLeave {
+  id        String   @id @default(uuid())
+  doctorId  String
+  doctor    User     @relation("DoctorLeaves", fields: [doctorId], references: [id], onDelete: Cascade)
+  date      DateTime // The leave date (stored at UTC midnight)
+  reason    String?  // Optional reason
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([doctorId, date]) // Prevent duplicate leave on same date
 }
